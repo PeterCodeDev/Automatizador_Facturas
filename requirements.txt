@@ -1,0 +1,5 @@
+google-genai
+python-dotenv
+gspread
+oauth2client
+Pillow
