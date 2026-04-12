@@ -49,27 +49,39 @@ def analizar_ticket(ruta_imagen):
 
 # 4. FLUJO PRINCIPAL
 def procesar_y_guardar(ruta_foto):
-    # Paso A: La IA lee la foto
+    # 1. La IA analiza la imagen
     datos = analizar_ticket(ruta_foto)
-    print(f"✅ IA ha leído: {datos['empresa']} - {datos['total']}€")
-
-    # Paso B: Conectar al Excel
-    hoja = conectar_sheets()
     
-    # Paso C: Preparar la fila (ajusta el orden según tus columnas)
+    if "error" in datos:
+        print(f"❌ Error de IA: {datos['error']}")
+        return
+
+    # 2. Conectar a la hoja
+    hoja = conectar_sheets() # Asegúrate de tener esta función definida arriba
+    
+    # --- NUEVO: LÓGICA DE ENCABEZADOS ---
+    # Si la celda A1 está vacía, ponemos los títulos
+    if not hoja.acell('A1').value:
+        encabezados = ["Fecha", "Empresa", "CIF", "Base Imponible", "IVA", "Total", "Categoría", "Nombre Archivo"]
+        hoja.append_row(encabezados)
+        print("📊 Encabezados creados en el Excel.")
+
+    # 3. Preparar los datos en el orden de los encabezados
+    # Usamos .get() para evitar errores si Gemini olvida algún campo
     fila = [
-        datos['fecha'], 
-        datos['empresa'], 
-        datos['cif'], 
-        datos['base'], 
-        datos['iva'], 
-        datos['total'], 
-        datos['categoria']
+        datos.get('fecha', 'N/A'),
+        datos.get('empresa', 'N/A'),
+        datos.get('cif', 'N/A'),
+        datos.get('base', 0),
+        datos.get('iva', 0),
+        datos.get('total', 0),
+        datos.get('categoria', 'Otros'),
+        ruta_foto # Para saber de qué archivo vino
     ]
     
-    # Paso D: Escribir en el Excel
+    # 4. Guardar en el Excel
     hoja.append_row(fila)
-    print("🚀 ¡Datos guardados en Google Sheets correctamente!")
+    print(f"✅ ¡Éxito! Gastos de '{datos.get('empresa')}' guardados correctamente.")
 
 # EJECUCIÓN
 if __name__ == "__main__":
