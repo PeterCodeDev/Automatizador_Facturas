@@ -101,4 +101,5 @@ def manejar_foto(message):
         bot.edit_message_text(f"❌ Error: {str(e)}", message.chat.id, msg_espera.message_id)
 
 print("🚀 Bot en marcha... Dile a tu padre que envíe una foto.")
+keep_alive()
 bot.polling()
