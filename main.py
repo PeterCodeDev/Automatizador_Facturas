@@ -1,89 +1,89 @@
 import os
-import json
-import gspread
+import telebot
 from dotenv import load_dotenv
 from google import genai
 from PIL import Image
+import io
+import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-# 1. CARGAR CLAVES
+# 1. CONFIGURACIÓN INICIAL
 load_dotenv()
-api_key = os.getenv("GEMINI_API_KEY")
-client_gemini = genai.Client(api_key=api_key)
+token_tg = os.getenv("TELEGRAM_TOKEN")
+bot = telebot.TeleBot(token_tg)
 
-# 2. CONECTAR A GOOGLE SHEETS
+client_gemini = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+
+# 2. FUNCIÓN PARA CONECTAR AL EXCEL
 def conectar_sheets():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    # Reutilizamos tu archivo de credenciales
     creds = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
     client = gspread.authorize(creds)
-    
-    # --- AQUÍ PONES EL NOMBRE DE TU EXCEL ---
-    # Asegúrate de que el nombre sea EXACTO al que ves en Google Drive
-    nombre_del_excel = "Facturas_Adrian" 
-    return client.open(nombre_del_excel).sheet1
+    return client.open("Facturas_Adrian").sheet1 # Asegúrate de que el nombre coincide
 
-# 3. LÓGICA DE IA (LEER IMAGEN)
-def analizar_ticket(ruta_imagen):
-    print(f"📸 Analizando imagen: {ruta_imagen}...")
-    img = Image.open(ruta_imagen)
-
-    prompt = """
-    Eres un experto contable. Analiza este ticket y extrae:
-    CIF, Empresa, Fecha (DD/MM/AAAA), Base Imponible, IVA, Total y Categoría.
-    Responde ÚNICAMENTE en JSON:
-    {"cif": "", "empresa": "", "fecha": "", "base": 0.0, "iva": 0.0, "total": 0.0, "categoria": ""}
-    """
-
+# 3. LÓGICA DE IA
+def analizar_ticket(imagen_pil):
+    prompt = "Eres un contable. Extrae en JSON: empresa, cif, fecha, base, iva, total, categoria."
+    # Usamos gemini-1.5-flash que es el más estable para esto
     response = client_gemini.models.generate_content(
         model="gemini-2.5-flash",
-        contents=[prompt, img]
+        contents=[prompt, imagen_pil]
     )
-    print("--- MODELOS DISPONIBLES ---")
-    for m in client_gemini.models.list():
-        print(m.name)
-    print("---------------------------")
+    texto = response.text
+    if "```json" in texto:
+        texto = texto.split("```json")[1].split("```")[0]
+    import json
+    return json.loads(texto.strip())
 
-    res_text = response.text.replace("```json", "").replace("```", "").strip()
-    return json.loads(res_text)
-
-# 4. FLUJO PRINCIPAL
-def procesar_y_guardar(ruta_foto):
-    # 1. La IA analiza la imagen
-    datos = analizar_ticket(ruta_foto)
+# 4. EL BOT "ESCUCHANDO" FOTOS
+@bot.message_handler(content_types=['photo'])
+def manejar_foto(message):
+    print("🔔 ¡Ha llegado una foto!")
+    msg_espera = bot.reply_to(message, "📸 Analizando y guardando nombre de archivo...")
     
-    if "error" in datos:
-        print(f"❌ Error de IA: {datos['error']}")
-        return
+    try:
+        # 1. Obtener información del archivo
+        file_info = bot.get_file(message.photo[-1].file_id)
+        # Usamos el file_unique_id o parte del path como nombre de referencia
+        nombre_archivo = f"ticket_{file_info.file_unique_id}.jpg"
+        
+        downloaded_file = bot.download_file(file_info.file_path)
+        img = Image.open(io.BytesIO(downloaded_file))
+        img.thumbnail((1024, 1024))
 
-    # 2. Conectar a la hoja
-    hoja = conectar_sheets() # Asegúrate de tener esta función definida arriba
-    
-    # --- NUEVO: LÓGICA DE ENCABEZADOS ---
-    # Si la celda A1 está vacía, ponemos los títulos
-    if not hoja.acell('A1').value:
-        encabezados = ["Fecha", "Empresa", "CIF", "Base Imponible", "IVA", "Total", "Categoría", "Nombre Archivo"]
-        hoja.append_row(encabezados)
-        print("📊 Encabezados creados en el Excel.")
+        # 2. Analizar con Gemini
+        datos = analizar_ticket(img)
 
-    # 3. Preparar los datos en el orden de los encabezados
-    # Usamos .get() para evitar errores si Gemini olvida algún campo
-    fila = [
-        datos.get('fecha', 'N/A'),
-        datos.get('empresa', 'N/A'),
-        datos.get('cif', 'N/A'),
-        datos.get('base', 0),
-        datos.get('iva', 0),
-        datos.get('total', 0),
-        datos.get('categoria', 'Otros'),
-        ruta_foto # Para saber de qué archivo vino
-    ]
-    
-    # 4. Guardar en el Excel
-    hoja.append_row(fila)
-    print(f"✅ ¡Éxito! Gastos de '{datos.get('empresa')}' guardados correctamente.")
+        # 3. Conectar y Guardar
+        hoja = conectar_sheets()
+        
+        # Si la hoja está vacía, ponemos los encabezados (ahora con NOMBRE ARCHIVO)
+        if not hoja.acell('A1').value:
+            encabezados = ["FECHA", "EMPRESA", "CIF", "BASE", "IVA", "TOTAL", "CATEGORIA", "NOMBRE ARCHIVO"]
+            hoja.insert_row(encabezados, 1)
 
-# EJECUCIÓN
-if __name__ == "__main__":
-    # Asegúrate de tener una foto llamada ticket.jpg en la carpeta
-    procesar_y_guardar("ticket_ejemplo.jpeg")
+        # 4. Preparamos la fila incluyendo el nombre del archivo al final
+        fila = [
+            datos.get('fecha'), 
+            datos.get('empresa'), 
+            datos.get('cif'), 
+            datos.get('base'), 
+            datos.get('iva'), 
+            datos.get('total'), 
+            datos.get('categoria'),
+            nombre_archivo  # <--- Esta es la nueva columna
+        ]
+        
+        hoja.append_row(fila)
+
+        bot.edit_message_text(
+            f"✅ ¡Guardado!\n📂 Archivo: {nombre_archivo}\n🏢 Empresa: {datos.get('empresa')}\n💰 Total: {datos.get('total')}€", 
+            message.chat.id, msg_espera.message_id
+        )
+
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        bot.edit_message_text(f"❌ Error: {str(e)}", message.chat.id, msg_espera.message_id)
+
+print("🚀 Bot en marcha... Dile a tu padre que envíe una foto.")
+bot.polling()
