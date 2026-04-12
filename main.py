@@ -44,7 +44,7 @@ def conectar_sheets():
 def analizar_ticket(imagen_pil):
     # El contenido es directamente la imagen abierta con PIL
     response = client_gemini.models.generate_content(
-        model="gemini-2.0-flash", # El que vimos que funcionaba
+        model="gemini-2.5-flash", # El que vimos que funcionaba
         contents=["Extrae en JSON: empresa, cif, fecha, base, iva, total, categoria.", imagen_pil]
     )
     # ... resto del código para limpiar el JSON ...
