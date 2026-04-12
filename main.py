@@ -8,15 +8,19 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from flask import Flask
 from threading import Thread
+import os
 
+# Creamos una web mini para que Render esté contento
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "Bot is alive!"
+    return "Bot de Facturas Operativo"
 
 def run():
-    app.run(host='0.0.0.0', port=10000)
+    # Render nos obliga a usar el puerto que ellos digan o el 10000
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
 
 def keep_alive():
     t = Thread(target=run)
@@ -101,5 +105,7 @@ def manejar_foto(message):
         bot.edit_message_text(f"❌ Error: {str(e)}", message.chat.id, msg_espera.message_id)
 
 print("🚀 Bot en marcha... Dile a tu padre que envíe una foto.")
-keep_alive()
-bot.polling()
+if __name__ == "__main__":
+    keep_alive() # Esto arranca la web en segundo plano
+    print("🚀 Bot en marcha...")
+    bot.polling(none_stop=True)
