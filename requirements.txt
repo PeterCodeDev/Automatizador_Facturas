@@ -1,5 +1,6 @@
+pyTelegramBotAPI
 google-genai
-python-dotenv
 gspread
+pillow
+python-dotenv
 oauth2client
-Pillow
