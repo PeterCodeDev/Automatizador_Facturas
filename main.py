@@ -6,6 +6,21 @@ from PIL import Image
 import io
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+from flask import Flask
+from threading import Thread
+
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Bot is alive!"
+
+def run():
+    app.run(host='0.0.0.0', port=10000)
+
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
 
 # 1. CONFIGURACIÓN INICIAL
 load_dotenv()
