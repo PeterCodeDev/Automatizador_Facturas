@@ -36,9 +36,13 @@ def analizar_ticket(ruta_imagen):
     """
 
     response = client_gemini.models.generate_content(
-        model="gemini-2.0-flash",
+        model="gemini-2.5-flash",
         contents=[prompt, img]
     )
+    print("--- MODELOS DISPONIBLES ---")
+    for m in client_gemini.models.list():
+        print(m.name)
+    print("---------------------------")
 
     res_text = response.text.replace("```json", "").replace("```", "").strip()
     return json.loads(res_text)
@@ -70,4 +74,4 @@ def procesar_y_guardar(ruta_foto):
 # EJECUCIÓN
 if __name__ == "__main__":
     # Asegúrate de tener una foto llamada ticket.jpg en la carpeta
-    procesar_y_guardar("ticket.jpg")
+    procesar_y_guardar("ticket_ejemplo.jpeg")
