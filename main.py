@@ -38,12 +38,12 @@ def conectar_sheets():
 
 # 3. LÓGICA DE IA
 def analizar_ticket(imagen_pil):
-    prompt = "Eres un contable. Extrae en JSON: empresa, cif, fecha, base, iva, total, categoria."
-    # Usamos gemini-1.5-flash que es el más estable para esto
+    # El contenido es directamente la imagen abierta con PIL
     response = client_gemini.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=[prompt, imagen_pil]
+        model="gemini-2.0-flash", # El que vimos que funcionaba
+        contents=["Extrae en JSON: empresa, cif, fecha, base, iva, total, categoria.", imagen_pil]
     )
+    # ... resto del código para limpiar el JSON ...
     texto = response.text
     if "```json" in texto:
         texto = texto.split("```json")[1].split("```")[0]
