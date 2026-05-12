@@ -1,5 +1,7 @@
 {
-  "builds": [
-    { "src": "api/*.py", "use": "@vercel/python" }
-  ]
+  "functions": {
+    "api/process.py": {
+      "runtime": "@vercel/python"
+    }
+  }
 }
