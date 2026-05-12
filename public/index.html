@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Automatizador de Facturas</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+            text-align: center;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 1.8rem;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 0.95rem;
+        }
+
+        .upload-zone {
+            border: 3px dashed #667eea;
+            border-radius: 15px;
+            padding: 40px 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: #f8f9ff;
+            margin-bottom: 20px;
+        }
+
+        .upload-zone:hover {
+            background: #eef0ff;
+            border-color: #764ba2;
+        }
+
+        .upload-zone.dragover {
+            background: #e0e4ff;
+            border-color: #764ba2;
+            transform: scale(1.02);
+        }
+
+        .upload-icon {
+            font-size: 4rem;
+            margin-bottom: 15px;
+        }
+
+        .upload-text {
+            color: #555;
+            font-size: 1rem;
+        }
+
+        .upload-text span {
+            color: #667eea;
+            font-weight: bold;
+            text-decoration: underline;
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        .preview-container {
+            display: none;
+            margin-bottom: 20px;
+        }
+
+        .preview-container.active {
+            display: block;
+        }
+
+        .preview-image {
+            max-width: 100%;
+            max-height: 250px;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 100%;
+        }
+
+        .btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 10px;
+            display: none;
+        }
+
+        .status.active {
+            display: block;
+        }
+
+        .status.loading {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(0,0,0,0.1);
+            border-radius: 50%;
+            border-top-color: #856404;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .result-details {
+            margin-top: 15px;
+            text-align: left;
+            background: rgba(255,255,255,0.5);
+            padding: 15px;
+            border-radius: 8px;
+        }
+
+        .result-details p {
+            margin: 5px 0;
+            font-size: 0.9rem;
+        }
+
+        .result-details strong {
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Automatizador de Facturas</h1>
+        <p class="subtitle">Sube una foto de tu factura y se guardara automaticamente en tu hoja de calculo</p>
+
+        <div class="upload-zone" id="uploadZone">
+            <div class="upload-icon">📄</div>
+            <p class="upload-text">Arrastra una imagen aqui o <span>haz clic para seleccionar</span></p>
+        </div>
+
+        <input type="file" id="fileInput" accept="image/*">
+
+        <div class="preview-container" id="previewContainer">
+            <img class="preview-image" id="previewImage" alt="Vista previa">
+        </div>
+
+        <button class="btn" id="processBtn" disabled>Procesar Factura</button>
+
+        <div class="status" id="status"></div>
+    </div>
+
+    <script>
+        const uploadZone = document.getElementById('uploadZone');
+        const fileInput = document.getElementById('fileInput');
+        const previewContainer = document.getElementById('previewContainer');
+        const previewImage = document.getElementById('previewImage');
+        const processBtn = document.getElementById('processBtn');
+        const status = document.getElementById('status');
+
+        let selectedFile = null;
+
+        uploadZone.addEventListener('click', () => fileInput.click());
+
+        uploadZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadZone.classList.add('dragover');
+        });
+
+        uploadZone.addEventListener('dragleave', () => {
+            uploadZone.classList.remove('dragover');
+        });
+
+        uploadZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadZone.classList.remove('dragover');
+            if (e.dataTransfer.files.length) {
+                handleFile(e.dataTransfer.files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length) {
+                handleFile(e.target.files[0]);
+            }
+        });
+
+        function handleFile(file) {
+            if (!file.type.startsWith('image/')) {
+                showStatus('Por favor, selecciona un archivo de imagen', 'error');
+                return;
+            }
+
+            selectedFile = file;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                previewImage.src = e.target.result;
+                previewContainer.classList.add('active');
+                processBtn.disabled = false;
+                status.classList.remove('active');
+            };
+            reader.readAsDataURL(file);
+        }
+
+        processBtn.addEventListener('click', async () => {
+            if (!selectedFile) return;
+
+            processBtn.disabled = true;
+            showStatus('<span class="spinner"></span> Procesando factura con IA...', 'loading');
+
+            try {
+                const reader = new FileReader();
+                reader.onload = async (e) => {
+                    const base64 = e.target.result.split(',')[1];
+
+                    const response = await fetch('/api/process', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ image: base64 })
+                    });
+
+                    const data = await response.json();
+
+                    if (response.ok && data.success) {
+                        showStatus(
+                            `✅ Factura guardada correctamente!<div class="result-details">
+                                <p><strong>Empresa:</strong> ${data.empresa}</p>
+                                <p><strong>Total:</strong> ${data.total}</p>
+                                <p><strong>Archivo:</strong> ${data.nombre_archivo}</p>
+                            </div>`,
+                            'success'
+                        );
+                        previewContainer.classList.remove('active');
+                        selectedFile = null;
+                        fileInput.value = '';
+                    } else {
+                        showStatus(`Error: ${data.error || 'Error desconocido'}`, 'error');
+                    }
+                    processBtn.disabled = false;
+                };
+                reader.readAsDataURL(selectedFile);
+            } catch (err) {
+                showStatus(`Error de conexion: ${err.message}`, 'error');
+                processBtn.disabled = false;
+            }
+        });
+
+        function showStatus(message, type) {
+            status.innerHTML = message;
+            status.className = `status active ${type}`;
+        }
+    </script>
+</body>
+</html>
