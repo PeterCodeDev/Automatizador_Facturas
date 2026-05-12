@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "functions": {
+    "api/process.py": {
+      "runtime": "@vercel/python@4.3.0"
+    }
+  },
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/process.py"
+    }
+  ]
+}
