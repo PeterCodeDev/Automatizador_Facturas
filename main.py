@@ -41,41 +41,55 @@ def conectar_sheets():
     return client.open("Facturas_Adrian").sheet1 # Asegúrate de que el nombre coincide
 
 # 3. LÓGICA DE IA
-def analizar_ticket(imagen_pil):
-    # El contenido es directamente la imagen abierta con PIL
+def analizar_documento(file_bytes, mime_type):
+    # Ya no forzamos PIL. Usamos bytes crudos para soportar PDFs o Imágenes de manera dinámica.
     response = client_gemini.models.generate_content(
-        model="gemini-2.5-flash", # El que vimos que funcionaba
-        contents=["Extrae en JSON: empresa, cif, fecha, base, iva, total, categoria.", imagen_pil]
+        model="gemini-2.5-flash",
+        contents=[
+            "Extrae en JSON exacto: empresa, cif, fecha, base, iva, total, categoria. Los importes deben ser puramente numéricos si es posible.",
+            {"mime_type": mime_type, "data": file_bytes}
+        ]
     )
-    # ... resto del código para limpiar el JSON ...
     texto = response.text
     if "```json" in texto:
         texto = texto.split("```json")[1].split("```")[0]
     import json
     return json.loads(texto.strip())
 
-# 4. EL BOT "ESCUCHANDO" FOTOS
-@bot.message_handler(content_types=['photo'])
-def manejar_foto(message):
-    print("🔔 ¡Ha llegado una foto!")
-    msg_espera = bot.reply_to(message, "📸 Analizando y guardando nombre de archivo...")
+# 4. EL BOT "ESCUCHANDO" FOTOS Y DOCUMENTOS (PDF)
+@bot.message_handler(content_types=['photo', 'document'])
+def manejar_archivo(message):
+    print("🔔 ¡Ha llegado un archivo!")
+    msg_espera = bot.reply_to(message, "📸 Analizando documento...")
     
     try:
-        # 1. Obtener información del archivo
-        file_info = bot.get_file(message.photo[-1].file_id)
-        # Usamos el file_unique_id o parte del path como nombre de referencia
-        nombre_archivo = f"ticket_{file_info.file_unique_id}.jpg"
-        
+        # 1. Obtener información del archivo dependiendo del tipo (Image o Document PDF)
+        if message.content_type == 'photo':
+            file_info = bot.get_file(message.photo[-1].file_id)
+            mime_type = "image/jpeg"
+            nombre_archivo = f"ticket_{file_info.file_unique_id}.jpg"
+        elif message.content_type == 'document':
+            if message.document.mime_type != 'application/pdf':
+                bot.edit_message_text("❌ Solo acepto imágenes (fotos) o documentos PDF.", message.chat.id, msg_espera.message_id)
+                return
+            file_info = bot.get_file(message.document.file_id)
+            mime_type = "application/pdf"
+            nombre_archivo = f"factura_{file_info.file_unique_id}.pdf"
+
         downloaded_file = bot.download_file(file_info.file_path)
-        img = Image.open(io.BytesIO(downloaded_file))
-        img.thumbnail((1024, 1024))
 
         # 2. Analizar con Gemini
-        datos = analizar_ticket(img)
+        datos = analizar_documento(downloaded_file, mime_type)
 
         # 3. Conectar y Guardar
         hoja = conectar_sheets()
         
+        # Validación básica para que no falten campos clave
+        campos_requeridos = ['fecha', 'empresa', 'cif', 'base', 'iva', 'total', 'categoria']
+        for campo in campos_requeridos:
+            if campo not in datos:
+                datos[campo] = None
+
         # Si la hoja está vacía, ponemos los encabezados (ahora con NOMBRE ARCHIVO)
         if not hoja.acell('A1').value:
             encabezados = ["FECHA", "EMPRESA", "CIF", "BASE", "IVA", "TOTAL", "CATEGORIA", "NOMBRE ARCHIVO", "VERIFICADA"]

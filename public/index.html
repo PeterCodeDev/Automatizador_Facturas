@@ -181,27 +181,115 @@
         .result-details strong {
             color: #333;
         }
+
+        /* Nuevos estilos para la tabla de historial y soporte PDF */
+        .history-container {
+            margin-top: 30px;
+            text-align: left;
+            background: #f8f9ff;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: inset 0 2px 10px rgba(0,0,0,0.05);
+        }
+
+        .history-title {
+            font-size: 1.2rem;
+            color: #333;
+            margin-bottom: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .history-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+
+        .history-table th, .history-table td {
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
+            text-align: left;
+        }
+
+        .history-table th {
+            color: #667eea;
+            font-weight: bold;
+        }
+
+        .history-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: bold;
+        }
+
+        .status-badge.no {
+            background: #ffe3e3;
+            color: #c92a2a;
+        }
+
+        .status-badge.si {
+            background: #d3f9d8;
+            color: #2b8a3e;
+        }
+
+        .pdf-icon {
+            font-size: 4rem;
+            color: #e53e3e;
+            margin-bottom: 15px;
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Automatizador de Facturas</h1>
-        <p class="subtitle">Sube una foto de tu factura y se guardara automaticamente en tu hoja de calculo</p>
+    <div class="container" style="max-width: 650px;">
+        <h1>Automatizador de Facturas PRO</h1>
+        <p class="subtitle">Sube una foto o PDF de tu factura y la IA extraerá los datos hacia Google Sheets</p>
 
         <div class="upload-zone" id="uploadZone">
             <div class="upload-icon">📄</div>
-            <p class="upload-text">Arrastra una imagen aqui o <span>haz clic para seleccionar</span></p>
+            <p class="upload-text">Arrastra una imagen/PDF aquí o <span>haz clic para seleccionar</span></p>
         </div>
 
-        <input type="file" id="fileInput" accept="image/*">
+        <input type="file" id="fileInput" accept="image/*,application/pdf">
 
         <div class="preview-container" id="previewContainer">
-            <img class="preview-image" id="previewImage" alt="Vista previa">
+            <img class="preview-image" id="previewImage" alt="Vista previa" style="display: none;">
+            <div id="pdfPreview" style="display: none;">
+                <div class="pdf-icon">📕</div>
+                <p id="pdfName" style="margin-top: 10px; color: #555; font-weight: bold;"></p>
+                <p style="font-size: 0.85rem; color: #888;">Documento PDF Listo para Analizar</p>
+            </div>
         </div>
 
-        <button class="btn" id="processBtn" disabled>Procesar Factura</button>
+        <button class="btn" id="processBtn" disabled>Analizar Documento con IA</button>
 
         <div class="status" id="status"></div>
+
+        <div class="history-container">
+            <div class="history-title">
+                <span>Últimas Facturas (Google Sheets)</span>
+                <button onclick="loadHistory()" style="background:none; border:none; color:#667eea; cursor:pointer; font-size:1.2rem;" title="Actualizar historial">🔄</button>
+            </div>
+            <table class="history-table">
+                <thead>
+                    <tr>
+                        <th>Fecha</th>
+                        <th>Empresa</th>
+                        <th>Total</th>
+                        <th>Estado</th>
+                    </tr>
+                </thead>
+                <tbody id="historyBody">
+                    <tr><td colspan="4" style="text-align:center;">Cargando historial...</td></tr>
+                </tbody>
+            </table>
+        </div>
     </div>
 
     <script>
@@ -240,16 +328,27 @@
         });
 
         function handleFile(file) {
-            if (!file.type.startsWith('image/')) {
-                showStatus('Por favor, selecciona un archivo de imagen', 'error');
+            const isImage = file.type.startsWith('image/');
+            const isPdf = file.type === 'application/pdf';
+
+            if (!isImage && !isPdf) {
+                showStatus('Por favor, selecciona una imagen o un archivo PDF', 'error');
                 return;
             }
 
             selectedFile = file;
             const reader = new FileReader();
             reader.onload = (e) => {
-                previewImage.src = e.target.result;
                 previewContainer.classList.add('active');
+                if (isImage) {
+                    previewImage.src = e.target.result;
+                    previewImage.style.display = 'inline-block';
+                    document.getElementById('pdfPreview').style.display = 'none';
+                } else {
+                    previewImage.style.display = 'none';
+                    document.getElementById('pdfPreview').style.display = 'block';
+                    document.getElementById('pdfName').innerText = file.name;
+                }
                 processBtn.disabled = false;
                 status.classList.remove('active');
             };
@@ -260,43 +359,48 @@
             if (!selectedFile) return;
 
             processBtn.disabled = true;
-            showStatus('<span class="spinner"></span> Procesando factura con IA...', 'loading');
+            showStatus('<span class="spinner"></span> Analizando documento con Gemini AI...', 'loading');
 
             try {
                 const reader = new FileReader();
                 reader.onload = async (e) => {
-                    const base64 = e.target.result.split(',')[1];
+                    const resultParts = e.target.result.split(',');
+                    const base64 = resultParts[1];
+                    const mimeMatch = resultParts[0].match(/:(.*?);/);
+                    const mimeType = mimeMatch ? mimeMatch[1] : (selectedFile.type || 'application/octet-stream');
 
                     const response = await fetch('/api/process', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ image: base64 })
+                        body: JSON.stringify({ file: base64, mimeType: mimeType, fileName: selectedFile.name })
                     });
 
                     const data = await response.json();
 
                     if (response.ok && data.success) {
                         showStatus(
-                            `✅ Factura guardada correctamente!<div class="result-details">
+                            `✅ Factura procesada y guardada correctamente!<div class="result-details">
                                 <p><strong>Empresa:</strong> ${data.empresa}</p>
                                 <p><strong>Fecha:</strong> ${data.fecha}</p>
-                                <p><strong>IVA:</strong> ${data.iva}</p>
-                                <p><strong>Total:</strong> ${data.total}</p>
-                                <p class="text-sm text-gray-500 mt-2"><em>* Marcada como "NO VERIFICADA" en Sheets para revisión manual</em></p>
+                                <p><strong>IVA:</strong> ${data.iva}€</p>
+                                <p><strong>Total:</strong> ${data.total}€</p>
+                                <p><strong>Categoría:</strong> <span style="background:#eef0ff; padding:2px 6px; border-radius:4px; font-weight:bold;">${data.categoria || 'N/A'}</span></p>
+                                <p class="text-sm text-gray-500 mt-2" style="font-size:0.8rem; border-top:1px solid #ccc; padding-top:8px;"><em>* Marcada como "NO VERIFICADA" en Google Sheets para revisión humana.</em></p>
                             </div>`,
                             'success'
                         );
                         previewContainer.classList.remove('active');
                         selectedFile = null;
                         fileInput.value = '';
+                        loadHistory(); // Recargar la tabla
                     } else {
-                        showStatus(`Error: ${data.error || 'Error desconocido'}`, 'error');
+                        showStatus(`Error: ${data.error || 'Problema al procesar'}`, 'error');
                     }
                     processBtn.disabled = false;
                 };
                 reader.readAsDataURL(selectedFile);
             } catch (err) {
-                showStatus(`Error de conexion: ${err.message}`, 'error');
+                showStatus(`Error de conexión: ${err.message}`, 'error');
                 processBtn.disabled = false;
             }
         });
@@ -305,6 +409,38 @@
             status.innerHTML = message;
             status.className = `status active ${type}`;
         }
+
+        async function loadHistory() {
+            const tbody = document.getElementById('historyBody');
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;">Cargando historial... <span class="spinner" style="width:12px; height:12px; border-width:2px; margin-left:5px;"></span></td></tr>';
+            try {
+                const res = await fetch('/api/process');
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.history && data.history.length > 0) {
+                        tbody.innerHTML = data.history.map(row => {
+                            const verifClass = row.verificada === 'SI' ? 'si' : 'no';
+                            const valor = row.total && !isNaN(row.total.replace(',', '.')) ? row.total + '€' : (row.total || '-');
+                            return `<tr>
+                                <td>${row.fecha || '-'}</td>
+                                <td><strong>${row.empresa || 'Desconocida'}</strong></td>
+                                <td>${valor}</td>
+                                <td><span class="status-badge ${verifClass}">${row.verificada || 'NO'}</span></td>
+                            </tr>`;
+                        }).join('');
+                    } else {
+                        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;">No hay facturas registradas aún.</td></tr>';
+                    }
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#e53e3e;">Error cargando registros del Sheet</td></tr>';
+                }
+            } catch (e) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#e53e3e;">Error de conexión con la API</td></tr>';
+            }
+        }
+
+        // Cargar últimos registros al arrancar
+        loadHistory();
     </script>
 </body>
 </html>
