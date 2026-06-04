@@ -3,16 +3,15 @@ import os
 import base64
 import io
 import hashlib
+from http.server import BaseHTTPRequestHandler
 from google import genai
 from PIL import Image
 import gspread
 from google.oauth2.service_account import Credentials
 
-
 def get_sheet():
     creds_json = os.environ.get("GOOGLE_CREDENTIALS")
     if not creds_json:
-        # Intento leer desde el archivo si no hay variable de entorno, util para testing local
         if os.path.exists('credentials.json'):
             client = gspread.service_account(filename='credentials.json')
             sheet_name = os.environ.get("SHEET_NAME", "Facturas_Adrian")
@@ -29,22 +28,16 @@ def get_sheet():
     return client.open(sheet_name).sheet1
 
 def calcular_totales(mes_anio=None):
-    # Función auxiliar para calcular totales mensuales (analitica backend)
     hoja = get_sheet()
     filas = hoja.get_all_values()
     if len(filas) <= 1:
-        return 0, 0
+        return 0
     
     total_importe = 0
-    total_iva = 0
-    
     for fila in filas[1:]:
-        # Omitimos filas sin importe total
         if len(fila) > 5 and fila[5]:
             try:
-                # Extraer valor y sumarlo
                 val = float(str(fila[5]).replace('€', '').replace(',', '.').strip())
-                # Si se pide un mes especifico (ej: 06/2026), se extrae de la fecha(Columna A)
                 if mes_anio:
                     fecha = fila[0] if len(fila) > 0 else ""
                     if mes_anio in fecha:
@@ -54,7 +47,6 @@ def calcular_totales(mes_anio=None):
             except ValueError:
                 pass
     return round(total_importe, 2)
-
 
 def analizar_documento(file_data, mime_type):
     api_key = os.environ.get("GEMINI_API_KEY")
@@ -82,31 +74,32 @@ Devuelve el resultado estructurado estrictamente en JSON y asegúrate de validar
     return json.loads(texto.strip())
 
 
-def handler(event, context=None):
-    headers = {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
-        "Content-Type": "application/json"
-    }
+# 🚀 CLASE DE ENTRADA REQUERIDA POR VERCEL (en minúsculas)
+class handler(BaseHTTPRequestHandler):
 
-    method = event.get("httpMethod") or event.get("requestContext", {}).get("http", {}).get("method")
+    def _set_headers(self, status_code=200):
+        self.send_response(status_code)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
 
-    if method == "OPTIONS":
-        return {"statusCode": 204, "headers": headers, "body": ""}
+    def do_OPTIONS(self):
+        self._set_headers(204)
 
-    if method == "GET":
+    def do_GET(self):
+        self._set_headers(200)
         try:
-            # Soportar queries para estadisticas puras desde el backend
-            path = event.get("path", "")
-            if "stats" in path:
+            # Replicar comportamiento de rutas por el path
+            if "stats" in self.path:
                 total_historico = calcular_totales()
-                return {"statusCode": 200, "headers": headers, "body": json.dumps({"historico": total_historico})}
+                self.wfile.write(json.dumps({"historico": total_historico}).encode('utf-8'))
+                return
 
             hoja = get_sheet()
             todas_filas = hoja.get_all_values()
             
-            # Devolvemos hasta las 50 filas más recientes para alimentar el dashboard frontend
             if len(todas_filas) > 1:
                 recientes = todas_filas[1:][-50:]
                 history = []
@@ -122,108 +115,108 @@ def handler(event, context=None):
                         "verificada": fila[8] if len(fila) > 8 else "NO",
                         "confianza": fila[9] if len(fila) > 9 else "100"
                     })
-                return {"statusCode": 200, "headers": headers, "body": json.dumps({"history": history})}
+                self.wfile.write(json.dumps({"history": history}).encode('utf-8'))
             else:
-                return {"statusCode": 200, "headers": headers, "body": json.dumps({"history": []})}
+                self.wfile.write(json.dumps({"history": []}).encode('utf-8'))
         except Exception as e:
-            return {"statusCode": 500, "headers": headers, "body": json.dumps({"error": f"Error fetch history: {str(e)}"})}
+            self.send_response(500)
+            self.wfile.write(json.dumps({"error": f"Error fetch history: {str(e)}"}).encode('utf-8'))
 
-    if method == "PUT":
+    def do_PUT(self):
         try:
-            body_str = event.get("body", "{}")
-            body = json.loads(body_str) if isinstance(body_str, str) else body_str
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length)
+            body = json.loads(post_data.decode('utf-8'))
+
             nombre_archivo = body.get("nombre_archivo")
-            
             if not nombre_archivo:
-                return {"statusCode": 400, "headers": headers, "body": json.dumps({"error": "Falta nombre_archivo para verificar."})}
+                self._set_headers(400)
+                self.wfile.write(json.dumps({"error": "Falta nombre_archivo para verificar."}).encode('utf-8'))
+                return
                 
             hoja = get_sheet()
-            col_archivos = hoja.col_values(8) # Columna H: NOMBRE ARCHIVO
+            col_archivos = hoja.col_values(8)
             
             try:
-                # En python los indices empiezan en 0, pero Google Sheets usa base 1
                 fila_idx = col_archivos.index(nombre_archivo) + 1
-                
-                # Actualización de datos corregidos manualmente por el usuario (Human-In-The-Loop Correction)
                 empresa_nueva = body.get("empresa")
                 categoria_nueva = body.get("categoria")
                 total_nuevo = body.get("total")
                 
-                # Batch update params: Actualizaciones condicionales sobrescribiendo la IA si el humano lo corrigió
                 if empresa_nueva:
-                    hoja.update_cell(fila_idx, 2, empresa_nueva) # B: EMPRESA
+                    hoja.update_cell(fila_idx, 2, empresa_nueva)
                 if categoria_nueva:
-                    hoja.update_cell(fila_idx, 7, categoria_nueva) # G: CATEGORIA
+                    hoja.update_cell(fila_idx, 7, categoria_nueva)
                 if total_nuevo is not None:
-                    hoja.update_cell(fila_idx, 6, total_nuevo) # F: TOTAL
+                    hoja.update_cell(fila_idx, 6, total_nuevo)
                     
-                hoja.update_cell(fila_idx, 9, "SI") # Columna I: VERIFICADA
-                return {"statusCode": 200, "headers": headers, "body": json.dumps({"success": True})}
+                hoja.update_cell(fila_idx, 9, "SI")
+                self._set_headers(200)
+                self.wfile.write(json.dumps({"success": True}).encode('utf-8'))
             except ValueError:
-                return {"statusCode": 404, "headers": headers, "body": json.dumps({"error": "Factura no encontrada."})}
+                self._set_headers(404)
+                self.wfile.write(json.dumps({"error": "Factura no encontrada."}).encode('utf-8'))
         except Exception as e:
-            return {"statusCode": 500, "headers": headers, "body": json.dumps({"error": str(e)})}
+            self._set_headers(500)
+            self.wfile.write(json.dumps({"error": str(e)}).encode('utf-8'))
 
-    if method != "POST":
-        return {"statusCode": 405, "headers": headers, "body": json.dumps({"error": "Método no permitido"})}
+    def do_POST(self):
+        try:
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length)
+            body = json.loads(post_data.decode('utf-8'))
 
-    try:
-        body_str = event.get("body", "{}")
-        body = json.loads(body_str) if isinstance(body_str, str) else body_str
-        
-        # Soportamos la clave antigua (image) o la nueva para docs (file)
-        file_b64 = body.get("file") or body.get("image")
-        mime_type = body.get("mimeType", "image/jpeg")
+            file_b64 = body.get("file") or body.get("image")
+            mime_type = body.get("mimeType", "image/jpeg")
 
-        if not file_b64:
-            return {"statusCode": 400, "headers": headers, "body": json.dumps({"error": "No se recibió archivo"})}
+            if not file_b64:
+                self._set_headers(400)
+                self.wfile.write(json.dumps({"error": "No se recibió archivo"}).encode('utf-8'))
+                return
 
-        file_data = base64.b64decode(file_b64)
+            file_data = base64.b64decode(file_b64)
+            datos = analizar_documento(file_data, mime_type)
+            hoja = get_sheet()
+            
+            campos_requeridos = ['fecha', 'empresa', 'cif', 'base', 'iva', 'total', 'categoria', 'confianza']
+            for campo in campos_requeridos:
+                if campo not in datos:
+                    datos[campo] = None
 
-        datos = analizar_documento(file_data, mime_type)
-        hoja = get_sheet()
-        
-        # Validacion del JSON devuelto por Gemini para campos requeridos
-        campos_requeridos = ['fecha', 'empresa', 'cif', 'base', 'iva', 'total', 'categoria', 'confianza']
-        for campo in campos_requeridos:
-            if campo not in datos:
-                datos[campo] = None
+            for num_field in ['base', 'iva', 'total']:
+                if datos.get(num_field):
+                    val = str(datos[num_field]).replace(',', '.').replace('€', '').strip()
+                    try:
+                        datos[num_field] = round(float(val), 2)
+                    except ValueError:
+                        datos[num_field] = 0
 
-        # Limpieza y formateo de datos para una base de datos más limpia
-        for num_field in ['base', 'iva', 'total']:
-            if datos.get(num_field):
-                val = str(datos[num_field]).replace(',', '.').replace('€', '').strip()
-                try:
-                    datos[num_field] = round(float(val), 2)
-                except ValueError:
-                    datos[num_field] = 0
+            if not hoja.acell("A1").value:
+                hoja.insert_row(["FECHA", "EMPRESA", "CIF", "BASE", "IVA", "TOTAL", "CATEGORIA", "NOMBRE ARCHIVO", "VERIFICADA", "CONFIANZA"], 1)
 
-        # Modificación de encabezados para incluir CONFIANZA
-        if not hoja.acell("A1").value:
-            hoja.insert_row(["FECHA", "EMPRESA", "CIF", "BASE", "IVA", "TOTAL", "CATEGORIA", "NOMBRE ARCHIVO", "VERIFICADA", "CONFIANZA"], 1)
+            extension = ".pdf" if "pdf" in mime_type else ".jpg"
+            nombre_archivo = f"doc_{hashlib.md5(file_data).hexdigest()[:12]}{extension}"
+            
+            fila = [
+                datos.get("fecha"), datos.get("empresa"), datos.get("cif"),
+                datos.get("base"), datos.get("iva"), datos.get("total"),
+                datos.get("categoria"), nombre_archivo, "NO", datos.get("confianza")
+            ]
+            hoja.append_row(fila)
 
-        extension = ".pdf" if "pdf" in mime_type else ".jpg"
-        nombre_archivo = f"doc_{hashlib.md5(file_data).hexdigest()[:12]}{extension}"
-        
-        # Guardaremos los datos extrayendo todo correctamente
-        fila = [
-            datos.get("fecha"), datos.get("empresa"), datos.get("cif"),
-            datos.get("base"), datos.get("iva"), datos.get("total"),
-            datos.get("categoria"), nombre_archivo, "NO", datos.get("confianza")
-        ]
-        hoja.append_row(fila)
+            result = {
+                "success": True,
+                "empresa": datos.get("empresa"),
+                "total": datos.get("total"),
+                "fecha": datos.get("fecha"),
+                "iva": datos.get("iva"),
+                "categoria": datos.get("categoria"),
+                "confianza": datos.get("confianza"),
+                "nombre_archivo": nombre_archivo
+            }
+            self._set_headers(200)
+            self.wfile.write(json.dumps(result).encode('utf-8'))
 
-        result = {
-            "success": True,
-            "empresa": datos.get("empresa"),
-            "total": datos.get("total"),
-            "fecha": datos.get("fecha"),
-            "iva": datos.get("iva"),
-            "categoria": datos.get("categoria"),
-            "confianza": datos.get("confianza"),
-            "nombre_archivo": nombre_archivo
-        }
-        return {"statusCode": 200, "headers": headers, "body": json.dumps(result)}
-
-    except Exception as e:
-        return {"statusCode": 500, "headers": headers, "body": json.dumps({"error": str(e)})}
+        except Exception as e:
+            self._set_headers(500)
+            self.wfile.write(json.dumps({"error": str(e)}).encode('utf-8'))
