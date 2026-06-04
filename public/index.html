@@ -638,13 +638,6 @@
             if (e.target.files.length) handleFiles(e.target.files);
         });
 
-        // Dark Mode Logic
-        document.getElementById('themeToggle').addEventListener('click', () => {
-            document.body.classList.toggle('dark-mode');
-            const icon = document.body.classList.contains('dark-mode') ? '☀️' : '🌙';
-            document.getElementById('themeToggle').innerText = icon;
-        });
-
         // --- WebCam Lógica ---
         document.getElementById('btnOpenWebcam').addEventListener('click', async (e) => {
             e.stopPropagation();
