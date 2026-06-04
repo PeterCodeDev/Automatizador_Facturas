@@ -78,10 +78,10 @@ def manejar_foto(message):
         
         # Si la hoja está vacía, ponemos los encabezados (ahora con NOMBRE ARCHIVO)
         if not hoja.acell('A1').value:
-            encabezados = ["FECHA", "EMPRESA", "CIF", "BASE", "IVA", "TOTAL", "CATEGORIA", "NOMBRE ARCHIVO"]
+            encabezados = ["FECHA", "EMPRESA", "CIF", "BASE", "IVA", "TOTAL", "CATEGORIA", "NOMBRE ARCHIVO", "VERIFICADA"]
             hoja.insert_row(encabezados, 1)
 
-        # 4. Preparamos la fila incluyendo el nombre del archivo al final
+        # 4. Preparamos la fila incluyendo el nombre del archivo al final y el campo de verificacion
         fila = [
             datos.get('fecha'), 
             datos.get('empresa'), 
@@ -90,13 +90,14 @@ def manejar_foto(message):
             datos.get('iva'), 
             datos.get('total'), 
             datos.get('categoria'),
-            nombre_archivo  # <--- Esta es la nueva columna
+            nombre_archivo,
+            "NO"
         ]
         
         hoja.append_row(fila)
 
         bot.edit_message_text(
-            f"✅ ¡Guardado!\n📂 Archivo: {nombre_archivo}\n🏢 Empresa: {datos.get('empresa')}\n💰 Total: {datos.get('total')}€", 
+            f"✅ ¡Guardado!\n📂 Archivo: {nombre_archivo}\n🏢 Empresa: {datos.get('empresa')}\n📅 Fecha: {datos.get('fecha')}\n💰 Total: {datos.get('total')}€", 
             message.chat.id, msg_espera.message_id
         )
 

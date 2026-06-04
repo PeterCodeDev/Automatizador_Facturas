@@ -12,7 +12,12 @@ from google.oauth2.service_account import Credentials
 def get_sheet():
     creds_json = os.environ.get("GOOGLE_CREDENTIALS")
     if not creds_json:
-        raise ValueError("Falta la variable GOOGLE_CREDENTIALS")
+        # Intento leer desde el archivo si no hay variable de entorno, util para testing local
+        if os.path.exists('credentials.json'):
+            client = gspread.service_account(filename='credentials.json')
+            sheet_name = os.environ.get("SHEET_NAME", "Facturas_Adrian")
+            return client.open(sheet_name).sheet1
+        raise ValueError("Falta la variable GOOGLE_CREDENTIALS o archivo credentials.json")
 
     creds_dict = json.loads(creds_json)
     credentials = Credentials.from_service_account_info(
@@ -70,15 +75,23 @@ def handler(event, context=None):
 
         datos = analizar_ticket(img)
         hoja = get_sheet()
+        
+        # Validacion del JSON devuelto por Gemini para campos requeridos
+        campos_requeridos = ['fecha', 'empresa', 'cif', 'base', 'iva', 'total', 'categoria']
+        for campo in campos_requeridos:
+            if campo not in datos:
+                datos[campo] = None
 
         if not hoja.acell("A1").value:
-            hoja.insert_row(["FECHA", "EMPRESA", "CIF", "BASE", "IVA", "TOTAL", "CATEGORIA", "NOMBRE ARCHIVO"], 1)
+            hoja.insert_row(["FECHA", "EMPRESA", "CIF", "BASE", "IVA", "TOTAL", "CATEGORIA", "NOMBRE ARCHIVO", "VERIFICADA"], 1)
 
         nombre_archivo = f"ticket_{hashlib.md5(image_data).hexdigest()[:12]}.jpg"
+        
+        # Guardaremos un campo más "VERIFICADA" para que una persona pueda revisar que la IA no alucinó
         fila = [
             datos.get("fecha"), datos.get("empresa"), datos.get("cif"),
             datos.get("base"), datos.get("iva"), datos.get("total"),
-            datos.get("categoria"), nombre_archivo
+            datos.get("categoria"), nombre_archivo, "NO"
         ]
         hoja.append_row(fila)
 
@@ -86,6 +99,8 @@ def handler(event, context=None):
             "success": True,
             "empresa": datos.get("empresa"),
             "total": datos.get("total"),
+            "fecha": datos.get("fecha"),
+            "iva": datos.get("iva"),
             "nombre_archivo": nombre_archivo
         }
         return {"statusCode": 200, "headers": headers, "body": json.dumps(result)}

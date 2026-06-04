@@ -279,8 +279,10 @@
                         showStatus(
                             `✅ Factura guardada correctamente!<div class="result-details">
                                 <p><strong>Empresa:</strong> ${data.empresa}</p>
+                                <p><strong>Fecha:</strong> ${data.fecha}</p>
+                                <p><strong>IVA:</strong> ${data.iva}</p>
                                 <p><strong>Total:</strong> ${data.total}</p>
-                                <p><strong>Archivo:</strong> ${data.nombre_archivo}</p>
+                                <p class="text-sm text-gray-500 mt-2"><em>* Marcada como "NO VERIFICADA" en Sheets para revisión manual</em></p>
                             </div>`,
                             'success'
                         );
