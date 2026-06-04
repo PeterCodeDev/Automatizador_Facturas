@@ -388,21 +388,95 @@
         .btn-export:hover {
             background: #059669;
         }
+
+        /* --- Nuevas Funcionalidades (Webcam, Progreso, Presupuesto) --- */
+        .btn-webcam {
+            background: #475569;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-top: 15px;
+            display: inline-block;
+        }
+        .btn-webcam:hover { background: #334155; }
+
+        .webcam-wrapper {
+            display: none;
+            margin-bottom: 20px;
+            background: #1e293b;
+            padding: 10px;
+            border-radius: 10px;
+        }
+
+        .progress-container {
+            display: none;
+            width: 100%;
+            background: #e2e8f0;
+            border-radius: 10px;
+            margin: 15px 0;
+            overflow: hidden;
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.2);
+        }
+        .progress-bar {
+            width: 0%;
+            height: 12px;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            transition: width 0.4s ease;
+        }
+
+        .budget-box {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.85rem;
+            font-weight: bold;
+            color: #555;
+            background: #f8f9ff;
+            padding: 5px 10px;
+            border-radius: 8px;
+            border: 1px solid #ccc;
+        }
+        body.dark-mode .budget-box { background: #334155; color: #cbd5e1; border-color: #475569; }
+
+        .budget-input { width: 70px; padding: 4px; border-radius: 4px; border: 1px solid #aaa; text-align:right;}
+        .budget-warning { color: #e53e3e; font-weight: bold; display: none; }
+
+        .sortable { cursor: pointer; user-select: none; }
+        .sortable:hover { background: rgba(0,0,0,0.05); }
+
     </style>
     <!-- Chart.js para gráficos -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- jsPDF para Exportación a Reportes PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
 </head>
 <body>
-    <div class="container" style="max-width: 700px;">
+    <div class="container" style="max-width: 800px;">
         <div class="header-actions">
             <button class="theme-toggle" id="themeToggle" title="Cambiar Tema">🌙</button>
         </div>
         <h1>Automatizador de Facturas PRO</h1>
-        <p class="subtitle">Sube una foto o PDF de tu factura y la IA extraerá los datos hacia Google Sheets</p>
+        <p class="subtitle">Escanea, arrastra o sube tus recibos. IA Avanzada + Sync Google Sheets</p>
 
         <div class="upload-zone" id="uploadZone">
             <div class="upload-icon">📄</div>
             <p class="upload-text">Arrastra uno o <b>varios archivos</b> aquí o <span>haz clic para seleccionar</span></p>
+            <button id="btnOpenWebcam" class="btn-webcam">📷 Escanear con WebCam</button>
+        </div>
+
+        <!-- Contenedor WebCam -->
+        <div class="webcam-wrapper" id="webcamWrapper">
+            <video id="webcamVideo" autoplay playsinline style="width:100%; border-radius:8px;"></video>
+            <div style="display:flex; gap:10px; margin-top:10px;">
+                <button id="btnCapture" class="btn" style="background:#10b981; flex:1;">📸 Capturar Info</button>
+                <button id="btnCloseWebcam" class="btn" style="background:#ef4444; flex:1;">❌ Cerrar</button>
+            </div>
+            <canvas id="webcamCanvas" style="display:none;"></canvas>
         </div>
 
         <input type="file" id="fileInput" accept="image/*,application/pdf" multiple>
@@ -410,10 +484,14 @@
         <div class="preview-container" id="previewContainer">
             <img class="preview-image" id="previewImage" alt="Vista previa" style="display: none;">
             <div id="pdfPreview" style="display: none;">
-                <div class="pdf-icon">📕</div>
+                <div class="pdf-icon">📚</div>
                 <p id="pdfName" style="margin-top: 10px; color: #555; font-weight: bold;"></p>
-                <p style="font-size: 0.85rem; color: #888;">Documentos Listos para Analizar</p>
+                <p style="font-size: 0.85rem; color: #888;">Documentos Listos para Analizar en Lote</p>
             </div>
+        </div>
+
+        <div class="progress-container" id="progressContainer">
+            <div class="progress-bar" id="progressBar"></div>
         </div>
 
         <button class="btn" id="processBtn" disabled>Analizar Documento con IA</button>
@@ -423,7 +501,7 @@
         <!-- Dashboard Financiero -->
         <div class="dashboard-grid" id="dashboardGrid" style="display:none;">
             <div class="stat-card">
-                <h4>Gasto Total Acomulado</h4>
+                <h4>Gasto Total Acumulado</h4>
                 <div class="stat-value" id="kpiTotal">0.00€</div>
             </div>
             <div class="stat-card">
@@ -433,33 +511,42 @@
         </div>
 
         <div class="chart-wrapper" id="chartWrapper" style="display:none;">
-            <canvas id="expenseChart" height="200"></canvas>
+            <canvas id="expenseChart" height="150"></canvas>
         </div>
 
         <div class="history-container">
             <div class="history-title">
-                <span>Registros Recientes</span>
+                <span>Registros y Auditoría de Datos</span>
                 <button onclick="loadHistory()" style="background:none; border:none; color:#667eea; cursor:pointer; font-size:1.2rem;" title="Actualizar historial">🔄</button>
             </div>
             
-            <div class="toolbar">
-                <input type="text" id="searchInput" class="search-bar" placeholder="🔍 Buscar empresa, fecha o importe...">
-                <button class="btn-export" onclick="exportDataToCSV()">📥 Exportar CSV</button>
+            <div class="toolbar" style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+                <input type="text" id="searchInput" class="search-bar" placeholder="🔍 Buscar empresa, fecha o importe..." style="min-width:200px;">
+                
+                <div class="budget-box">
+                    Límite Mes: <input type="number" id="budgetInput" class="budget-input" value="2000"> €
+                    <span id="budgetWarning" class="budget-warning">⚠️ EXCEDIDO</span>
+                </div>
+
+                <div style="display:flex; gap:5px;">
+                    <button class="btn-export" onclick="exportDataToCSV()">📥 CSV</button>
+                    <button class="btn-export" onclick="exportDataToPDF()" style="background:#e83e8c;">📄 PDF</button>
+                </div>
             </div>
 
-            <div style="max-height: 250px; overflow-y: auto; border: 1px solid #eee; border-radius:6px;">
+            <div style="max-height: 300px; overflow-y: auto; border: 1px solid #eee; border-radius:6px; box-shadow: inset 0 2px 5px rgba(0,0,0,0.02);">
                 <table class="history-table" id="dataTable">
                     <thead>
                         <tr style="position: sticky; top:0; background: #f8f9ff; z-index: 1;">
-                            <th>Fecha</th>
-                            <th>Empresa</th>
-                            <th>Categoría</th>
-                            <th>Total</th>
-                            <th>Estado</th>
+                            <th class="sortable" onclick="sortTable('fecha')">Fecha ↕️</th>
+                            <th class="sortable" onclick="sortTable('empresa')">Empresa/Conf. ↕️</th>
+                            <th class="sortable" onclick="sortTable('categoria')">Categoría ↕️</th>
+                            <th class="sortable" onclick="sortTable('total')">Total ↕️</th>
+                            <th>Estado/Acción</th>
                         </tr>
                     </thead>
                     <tbody id="historyBody">
-                        <tr><td colspan="5" style="text-align:center;">Cargando historial...</td></tr>
+                        <tr><td colspan="5" style="text-align:center;">Cargando historial maestro...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -467,43 +554,56 @@
     </div>
 
     <script>
-        // Variables globales
+        // --- Variables y Estado ---
         let lastHistoryData = [];
+        let filteredData = [];
         let expenseChartInstance = null;
-        let selectedFilesQueue = []; // Cambio crucial para el Multi-Upload
+        let selectedFilesQueue = [];
+        let sortCol = 'fecha';
+        let sortAsc = false;
+        let stream = null;
 
+        // --- Referencias UI ---
         const uploadZone = document.getElementById('uploadZone');
         const fileInput = document.getElementById('fileInput');
         const previewContainer = document.getElementById('previewContainer');
         const previewImage = document.getElementById('previewImage');
         const processBtn = document.getElementById('processBtn');
         const status = document.getElementById('status');
+        const progressContainer = document.getElementById('progressContainer');
+        const progressBar = document.getElementById('progressBar');
+        const budgetInput = document.getElementById('budgetInput');
+        const budgetWarning = document.getElementById('budgetWarning');
 
-        let selectedFile = null;
+        // --- WebCam DOM ---
+        const webcamWrapper = document.getElementById('webcamWrapper');
+        const webcamVideo = document.getElementById('webcamVideo');
+        const webcamCanvas = document.getElementById('webcamCanvas');
 
-        uploadZone.addEventListener('click', () => fileInput.click());
-
-        uploadZone.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            uploadZone.classList.add('dragover');
+        // --- Inicialización y Eventos Básicos ---
+        window.addEventListener('load', () => {
+            loadHistory();
+            budgetInput.addEventListener('change', checkBudget);
         });
 
-        uploadZone.addEventListener('dragleave', () => {
-            uploadZone.classList.remove('dragover');
+        document.getElementById('themeToggle').addEventListener('click', () => {
+            document.body.classList.toggle('dark-mode');
+            document.getElementById('themeToggle').innerText = document.body.classList.contains('dark-mode') ? '☀️' : '🌙';
         });
 
+        // --- Drag & Drop y Selección ---
+        uploadZone.addEventListener('click', (e) => {
+            if (e.target.id !== 'btnOpenWebcam') fileInput.click();
+        });
+        uploadZone.addEventListener('dragover', (e) => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+        uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'); );
         uploadZone.addEventListener('drop', (e) => {
             e.preventDefault();
             uploadZone.classList.remove('dragover');
-            if (e.dataTransfer.files.length) {
-                handleFiles(e.dataTransfer.files);
-            }
+            if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
         });
-
         fileInput.addEventListener('change', (e) => {
-            if (e.target.files.length) {
-                handleFiles(e.target.files);
-            }
+            if (e.target.files.length) handleFiles(e.target.files);
         });
 
         // Dark Mode Logic
@@ -513,20 +613,53 @@
             document.getElementById('themeToggle').innerText = icon;
         });
 
+        // --- WebCam Lógica ---
+        document.getElementById('btnOpenWebcam').addEventListener('click', async (e) => {
+            e.stopPropagation();
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                webcamVideo.srcObject = stream;
+                webcamWrapper.style.display = 'block';
+                uploadZone.style.display = 'none';
+            } catch (err) {
+                alert("No se pudo acceder a la cámara. Revisa los permisos.");
+            }
+        });
+
+        document.getElementById('btnCloseWebcam').addEventListener('click', () => {
+            if (stream) stream.getTracks().forEach(track => track.stop());
+            webcamWrapper.style.display = 'none';
+            uploadZone.style.display = 'block';
+        });
+
+        document.getElementById('btnCapture').addEventListener('click', () => {
+            webcamCanvas.width = webcamVideo.videoWidth;
+            webcamCanvas.height = webcamVideo.videoHeight;
+            webcamCanvas.getContext('2d').drawImage(webcamVideo, 0, 0);
+            
+            webcamCanvas.toBlob((blob) => {
+                const file = new File([blob], `scan_${Date.now()}.jpg`, { type: 'image/jpeg' });
+                handleFiles([file]);
+                document.getElementById('btnCloseWebcam').click();
+            }, 'image/jpeg', 0.9);
+        });
+
+        // --- Manejo de Archivos y Cola ---
         function handleFiles(files) {
             const arrFiles = Array.from(files);
             const validFiles = arrFiles.filter(f => f.type.startsWith('image/') || f.type === 'application/pdf');
 
             if (validFiles.length === 0) {
-                showStatus('Por favor, selecciona imágenes o archivos PDF', 'error');
+                showStatus('Selecciona imágenes o PDF válidos', 'error');
                 return;
             }
 
-            selectedFilesQueue = validFiles;
+            // Añadir a la cola existente
+            selectedFilesQueue = [...selectedFilesQueue, ...validFiles];
             previewContainer.classList.add('active');
 
-            if (validFiles.length === 1) {
-                const f = validFiles[0];
+            if (selectedFilesQueue.length === 1) {
+                const f = selectedFilesQueue[0];
                 if (f.type.startsWith('image/')) {
                     const reader = new FileReader();
                     reader.onload = e => {
@@ -541,27 +674,30 @@
                     document.getElementById('pdfName').innerText = f.name;
                 }
             } else {
-                // Bulk Queue Preview
                 previewImage.style.display = 'none';
                 document.getElementById('pdfPreview').style.display = 'block';
-                document.getElementById('pdfName').innerText = `📑 ${validFiles.length} Documentos en Cola`;
+                document.getElementById('pdfName').innerText = `📑 ${selectedFilesQueue.length} Documentos en Cola Multi-Procesamiento`;
             }
 
             processBtn.disabled = false;
-            processBtn.innerText = `Analizar Lote (${validFiles.length}) con IA`;
+            processBtn.innerText = `Analizar Lote Automático (${selectedFilesQueue.length})`;
             status.classList.remove('active');
         }
 
+        // --- Procesamiento IA en Lote (Upload) ---
         processBtn.addEventListener('click', async () => {
             if (selectedFilesQueue.length === 0) return;
 
             processBtn.disabled = true;
             let successCount = 0;
             let errorMsgs = [];
+            const totalDocs = selectedFilesQueue.length;
 
-            showStatus(`<span class="spinner"></span> Procesando ${selectedFilesQueue.length} documento(s)... Por favor espera.`, 'loading');
+            progressContainer.style.display = 'block';
+            progressBar.style.width = '0%';
+            showStatus(`<span class="spinner"></span> Procesando ${totalDocs} documento(s) mediante IA...`, 'loading');
 
-            for (let i = 0; i < selectedFilesQueue.length; i++) {
+            for (let i = 0; i < totalDocs; i++) {
                 const file = selectedFilesQueue[i];
                 try {
                     const base64 = await new Promise((resolve) => {
@@ -572,8 +708,7 @@
 
                     const resultParts = base64.split(',');
                     const b64Data = resultParts[1];
-                    const mimeMatch = resultParts[0].match(/:(.*?);/);
-                    const mimeType = mimeMatch ? mimeMatch[1] : (file.type || 'application/octet-stream');
+                    const mimeType = resultParts[0].match(/:(.*?);/) ? resultParts[0].match(/:(.*?);/)[1] : file.type;
 
                     const response = await fetch('/api/process', {
                         method: 'POST',
@@ -582,238 +717,194 @@
                     });
 
                     const data = await response.json();
-                    if (response.ok && data.success) {
-                        successCount++;
-                    } else {
-                        errorMsgs.push(`${file.name}: ${data.error}`);
-                    }
+                    if (response.ok && data.success) successCount++;
+                    else errorMsgs.push(`${file.name}: ${data.error}`);
+                    
                 } catch (err) {
-                    errorMsgs.push(`${file.name}: ${err.message}`);
+                    errorMsgs.push(`${file.name}: Fallo red`);
                 }
-            }
-
-            // Summary
-            if (successCount === selectedFilesQueue.length) {
-                showStatus(`✅ ¡Completado! Se guardaron ${successCount} documento(s) correctamente.<br><p class="text-sm mt-2">Validados por Analizador OCR Avanzado.</p>`, 'success');
-            } else if (successCount > 0) {
-                showStatus(`⚠️ Procesados ${successCount}/${selectedFilesQueue.length}. Errores: ${errorMsgs.join(' | ')}`, 'loading');
-            } else {
-                showStatus(`❌ Fallaron todos los documentos. ${errorMsgs.join(' | ')}`, 'error');
-            }
-
-            previewContainer.classList.remove('active');
-            selectedFilesQueue = [];
-            fileInput.value = '';
-            processBtn.disabled = true;
-            processBtn.innerText = 'Analizar Documento con IA';
-            await loadHistory();
-        });
-
-        function showStatus(message, type) {
-            status.className = 'status active';
-            status.innerHTML = message;
-
-            if (type === 'loading') {
-                status.style.display = 'flex';
-            } else {
-                setTimeout(() => {
-                    status.style.display = 'none';
-                }, 3000);
-            }
-        }
-
-        async function loadHistory() {
-            const response = await fetch('/api/history');
-            const data = await response.json();
-
-            if (response.ok) {
-                lastHistoryData = data;
-                renderHistory(data);
-                updateDashboard(data);
-            } else {
-                document.getElementById('historyBody').innerHTML = '<tr><td colspan="5" style="text-align:center;">Error al cargar historial</td></tr>';
-            }
-        }
-
-        function renderHistory(data) {
-            const tbody = document.getElementById('historyBody');
-            tbody.innerHTML = '';
-
-            if (data.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">No hay registros disponibles</td></tr>';
-                return;
-            }
-
-            data.forEach((item, index) => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td>${new Date(item.date).toLocaleDateString('es-ES')}</td>
-                    <td>${item.company}</td>
-                    <td>${item.category}</td>
-                    <td>${item.total.toFixed(2)}€</td>
-                    <td>
-                        <span class="status-badge ${item.status === 'si' ? 'si' : 'no'}">
-                            ${item.status === 'si' ? '✔️ Validado' : '❌ Error'}
-                        </span>
-                        ${item.status === 'no' ? '<button class="btn-verify" onclick="retryVerification('+index+')">Reintentar</button>' : ''}
-                    </td>
-                `;
-                tbody.appendChild(tr);
-            });
-        }
-
-        function updateDashboard(data) {
-            const total = data.reduce((sum, item) => sum + (item.status === 'si' ? item.total : 0), 0);
-            const count = data.filter(item => item.status === 'si').length;
-
-            document.getElementById('kpiTotal').innerText = `${total.toFixed(2)}€`;
-            document.getElementById('kpiCount').innerText = count;
-        }
-
-        function retryVerification(index) {
-            const item = lastHistoryData[index];
-            if (!item) return;
-
-            showStatus(`Reintentando verificación para ${item.company}...`, 'loading');
-
-            fetch('/api/retry', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: item.id })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    showStatus(`✅ Verificación completada para ${item.company}`, 'success');
-                    setTimeout(() => loadHistory(), 2000);
-                } else {
-                    showStatus(`❌ Error en la verificación: ${data.error}`, 'error');
-                }
-            })
-            .catch(err => {
-                showStatus(`❌ Error en la verificación: ${err.message}`, 'error');
-            });
-        }
-
-        function exportDataToCSV() {
-            const rows = [];
-            const headers = ['Fecha', 'Empresa', 'Categoría', 'Total', 'Estado'];
-            rows.push(headers.join(';'));
-
-            lastHistoryData.forEach(item => {
-                const row = [
-                    new Date(item.date).toLocaleDateString('es-ES'),
-                    item.company,
-                    item.category,
-                    item.total.toFixed(2) + '€',
-                    item.status === 'si' ? '✔️ Validado' : '❌ Error'
-                ];
-                rows.push(row.join(';'));
-            });
-
-            const csvContent = 'data:text/csv;charset=utf-8,' + rows.join('\n');
-            const encodedUri = encodeURI(csvContent);
-            const link = document.createElement('a');
-            link.setAttribute('href', encodedUri);
-            link.setAttribute('download', 'historial_facturas.csv');
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        }
-
-        // Al cargar la página, se obtiene el historial
-        window.addEventListener('load', () => {
-            loadHistory();
-        });
-
-        function parseNumber(value) {
-            if (typeof value === 'number') return value;
-            if (typeof value !== 'string') return 0;
-
-            value = value.replace('€', '').replace('.', '').replace(',', '.').trim();
-            const parsed = parseFloat(value);
-            return isNaN(parsed) ? 0 : parsed;
-        }
-
-        function verifyInvoice(fileName) {
-            showStatus(`Verificando ${fileName}...`, 'loading');
-
-            fetch('/api/verify', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ fileName: fileName })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    showStatus(`✅ Factura ${fileName} verificada con éxito`, 'success');
-                    setTimeout(() => loadHistory(), 2000);
-                } else {
-                    showStatus(`❌ Error al verificar ${fileName}: ${data.error}`, 'error');
-                }
-            })
-            .catch(err => {
-                showStatus(`❌ Error al verificar ${fileName}: ${err.message}`, 'error');
-            });
-        }
-
-        // Sobrescribir la función renderHistory para incluir lógica de auditoría y reparación
-        function renderHistory(data) {
-            const tbody = document.getElementById('historyBody');
-            tbody.innerHTML = '';
-
-            if (data.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">No hay registros disponibles</td></tr>';
-                return;
-            }
-
-            data.forEach((row, index) => {
-                const base = parseNumber(row.base);
-                const iva = parseNumber(row.iva);
-                const total = parseNumber(row.total);
-                const conf = parseFloat(row.confianza) || 0;
                 
+                // Actualizar barra de progreso
+                progressBar.style.width = `${((i + 1) / totalDocs) * 100}%`;
+            }
+
+            setTimeout(() => { progressContainer.style.display = 'none'; }, 2000);
+
+            if (successCount === totalDocs) {
+                showStatus(`✅ ¡Completado! ${successCount} documentos auditados por IA e insertados en Sheets.`, 'success');
+            } else if (errorMsgs.length > 0) {
+                showStatus(`⚠️ Procesamiento completo con errores en ${errorMsgs.length} documento(s): ${errorMsgs.join(', ')}`, 'error');
+            } else {
+                showStatus(`✅ Completado parcialmente. ${successCount} documentos procesados con éxito.`, 'success');
+            }
+
+            // Actualizar historial y dashboard
+            await loadHistory();
+            updateDashboard(lastHistoryData);
+            selectedFilesQueue = [];
+            processBtn.disabled = true;
+            processBtn.innerText = `Analizar Documento con IA`;
+        });
+
+        // --- Endpoints Acciones Especiales (Auditoria, Sort, Export) ---
+        function parseNumber(value) {
+            if (!value) return 0;
+            if (typeof value === 'number') return value;
+            let str = String(value).replace('€', '').replace('.', '').replace(',', '.').trim();
+            return isNaN(parseFloat(str)) ? 0 : parseFloat(str);
+        }
+
+        function sortTable(column) {
+            if (sortCol === column) sortAsc = !sortAsc;
+            else { sortCol = column; sortAsc = true; }
+            triggerSort(sortCol);
+        }
+
+        function triggerSort(col) {
+            filteredData.sort((a, b) => {
+                let valA, valB;
+                if (col === 'fecha') { valA = a.fechaObj.getTime(); valB = b.fechaObj.getTime(); }
+                else if (col === 'empresa') { valA = (a.empresa||'').toLowerCase(); valB = (b.empresa||'').toLowerCase(); }
+                else if (col === 'categoria') { valA = (a.categoria||'').toLowerCase(); valB = (b.categoria||'').toLowerCase(); }
+                else if (col === 'total') { valA = a.totalFloat; valB = b.totalFloat; }
+
+                if (valA < valB) return sortAsc ? -1 : 1;
+                if (valA > valB) return sortAsc ? 1 : -1;
+                return 0;
+            });
+            renderHistoryGrid(filteredData);
+        }
+
+        function renderHistoryGrid(dataArray) {
+            const tbody = document.getElementById('historyBody');
+            if (dataArray.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">No hay resultados</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = dataArray.map(row => {
                 let warning = '';
                 let autoReparado = false;
                 
-                // Validación inteligente (Auditoría Aritmética) y AUTO-RERPARACIÓN visual
-                if (base > 0 && Math.abs((base + iva) - total) > 0.1) {
-                    warning = ' <span class="warning-icon" title="Atención: Base + IVA = '+(base+iva).toFixed(2)+' pero el Total es '+total+'. ¡Revisar importes en Google Sheets!">⚠️</span>';
-                } else if (base > 0 && iva > 0 && total === 0) {
-                    // Reparacion algoritmica puramente Frontend
-                    row.total = (base + iva).toFixed(2);
+                // IA Analítica Frontend
+                if (row.baseFloat > 0 && Math.abs((row.baseFloat + row.ivaFloat) - row.totalFloat) > 0.1) {
+                    warning = ` <span class="warning-icon" title="Atención aritmética: Base+IVA=${(row.baseFloat+row.ivaFloat).toFixed(2)}, pero Total=${row.totalFloat}">⚠️</span>`;
+                } else if (row.baseFloat > 0 && row.ivaFloat > 0 && row.totalFloat === 0) {
+                    row.totalFloat = row.baseFloat + row.ivaFloat;
                     autoReparado = true;
-                    warning = ' <span class="warning-icon" style="color:#3730a3;" title="Auto-calculado: La IA omitió el total, pero se ha calculado sumando Base+IVA">💡</span>';
+                    warning = ' <span class="warning-icon" style="color:#3730a3;" title="Auto-calculado: IA omitió total, front sumó Base+IVA">💡</span>';
                 }
                 
-                // Color por nivel de confianza de la IA
-                let bgConf = '#10b981'; // Verde
-                if (conf < 70) bgConf = '#ef4444'; // Rojo
-                else if (conf < 90) bgConf = '#f59f00'; // Naranja
-                let confBadge = conf > 0 ? `<span class="confidence-indicator" style="background:${bgConf};" title="Certidumbre OCR">🎯 ${conf}%</span>` : '';
-
-                const valor = total > 0 ? total.toFixed(2) + '€' : (row.total || '-');
-
-                let cssBadge = verifClass;
-                let textBadge = row.verificada || 'NO';
-                if (autoReparado) {
-                    cssBadge = 'reparado';
-                    textBadge = 'AUTO';
-                }
+                let bgConf = row.confianzaFloat >= 90 ? '#10b981' : (row.confianzaFloat >= 70 ? '#f59f00' : '#ef4444');
+                let confBadge = row.confianzaFloat > 0 ? `<span class="confidence-indicator" style="background:${bgConf};" title="Certidumbre OCR">🎯 ${row.confianzaFloat}%</span>` : '';
+                
+                let verifClass = row.verificada === 'SI' ? 'si' : 'no';
+                let cssBadge = autoReparado ? 'reparado' : verifClass;
+                let textBadge = autoReparado ? 'AUTO' : (row.verificada || 'NO');
 
                 let verifHtml = `<span class="status-badge ${cssBadge}">${textBadge}</span>`;
                 if (row.verificada !== 'SI' && row.nombre_archivo) {
-                    verifHtml += `<br><button class="btn-verify" onclick="verifyInvoice('${row.nombre_archivo}')" style="margin-top: 5px;">Aprobar ✅</button>`;
+                    verifHtml += `<br><button class="btn-verify" onclick="verifyInvoice('${row.nombre_archivo}')" style="margin-top:5px;">Aprobar ✅</button>`;
                 }
 
                 return `<tr>
-                    <td>${new Date(row.fecha).toLocaleDateString('es-ES')}</td>
-                    <td>${row.empresa}</td>
-                    <td>${row.categoria}</td>
-                    <td>${valor}${warning}${confBadge}</td>
+                    <td>${row.fecha || '-'}${warning}</td>
+                    <td><strong>${row.empresa || 'Desconocida'}</strong> ${confBadge}</td>
+                    <td>${row.categoria || 'N/A'}</td>
+                    <td>${row.totalFloat > 0 ? row.totalFloat.toFixed(2)+'€' : '-'}</td>
                     <td>${verifHtml}</td>
                 </tr>`;
             }).join('');
+        }
+
+        // --- Utilidades, Presupuestos y Exportaciones ---
+        function updateDashboard(dataArray) {
+            const chartWrapper = document.getElementById('chartWrapper');
+            const grid = document.getElementById('dashboardGrid');
+            
+            if (!dataArray || dataArray.length === 0) {
+                grid.style.display = 'none'; chartWrapper.style.display = 'none'; return;
+            }
+            grid.style.display = 'grid'; chartWrapper.style.display = 'block';
+
+            let totalAcc = 0;
+            const cats = {};
+            dataArray.forEach(r => {
+                totalAcc += r.totalFloat;
+                const cat = r.categoria && r.categoria.trim() ? r.categoria : 'Otros';
+                cats[cat] = (cats[cat] || 0) + r.totalFloat;
+            });
+
+            document.getElementById('kpiTotal').innerText = totalAcc.toFixed(2) + '€';
+            document.getElementById('kpiCount').innerText = dataArray.length;
+            checkBudget(totalAcc);
+
+            if (expenseChartInstance) expenseChartInstance.destroy();
+            expenseChartInstance = new Chart(document.getElementById('expenseChart').getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(cats),
+                    datasets: [{ label: 'Gasto por Categoría (€)', data: Object.values(cats), backgroundColor: '#667eea', borderRadius: 4 }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+            });
+        }
+
+        function checkBudget(totalAcc) {
+            const currentTotal = typeof totalAcc === 'number' ? totalAcc : parseFloat(document.getElementById('kpiTotal').innerText);
+            const limit = parseFloat(budgetInput.value) || 0;
+            if (currentTotal > limit && limit > 0) {
+                budgetWarning.style.display = 'inline';
+                budgetWarning.title = `Te has excedido por ${(currentTotal - limit).toFixed(2)}€`;
+            } else {
+                budgetWarning.style.display = 'none';
+            }
+        }
+
+        async function verifyInvoice(fileName) {
+            showStatus('<span class="spinner"></span> Firmando y auditando recibo...', 'loading');
+            try {
+                const response = await fetch('/api/process', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre_archivo: fileName }) });
+                const data = await response.json();
+                if (response.ok && data.success) { showStatus('✅ Documento validado oficialmente', 'success'); await loadHistory(); }
+                else showStatus(`Error: ${data.error}`, 'error');
+            } catch (err) { showStatus(`Error red: ${err.message}`, 'error'); }
+        }
+
+        function showStatus(msg, type) {
+            status.className = `status active ${type}`;
+            status.innerHTML = msg;
+            if(type !== 'loading') setTimeout(() => { status.style.display = 'none'; }, 4000);
+            else status.style.display = 'block';
+        }
+
+        function exportDataToCSV() {
+            if(filteredData.length === 0) return alert('No hay datos.');
+            let csv = "data:text/csv;charset=utf-8,Fecha,Empresa,Categoria,Total,Estado\n" + 
+                filteredData.map(r => `${r.fecha},${r.empresa},${r.categoria},${r.totalFloat},${r.verificada}`).join("\n");
+            const link = document.createElement("a");
+            link.setAttribute("href", encodeURI(csv)); link.setAttribute("download", "auditoria_facturas.csv");
+            document.body.appendChild(link); link.click(); document.body.removeChild(link);
+        }
+
+        function exportDataToPDF() {
+            if(filteredData.length === 0) return alert('No hay datos.');
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            doc.text("Reporte de Automatización y Gastos Mensuales", 14, 15);
+            
+            const tableData = filteredData.map(r => [
+                r.fecha, r.empresa, r.categoria, r.totalFloat.toFixed(2) + '€', r.verificada === 'SI' ? 'Validada' : 'Pendiente'
+            ]);
+            
+            doc.autoTable({
+                startY: 25,
+                head: [['Fecha', 'Empresa', 'Categoría', 'Importe', 'Auditoría']],
+                body: tableData,
+                theme: 'striped',
+                headStyles: { fillColor: [102, 126, 234] }
+            });
+            doc.save('Gastos_Reporte.pdf');
         }
     </script>
 </body>
