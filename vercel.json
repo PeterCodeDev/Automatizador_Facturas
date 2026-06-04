@@ -1,14 +1,15 @@
 {
   "version": 2,
-  "functions": {
-    "api/process.py": {
-      "runtime": "@vercel/python@4.3.0"
+  "builds": [
+    {
+      "src": "api/process.py",
+      "use": "@vercel/python"
     }
-  },
+  ],
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "/api/process.py"
+      "dest": "api/process.py"
     }
   ]
 }
