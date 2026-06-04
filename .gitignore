@@ -2,3 +2,21 @@
 credentials.json
 node_modules/
 .vercel/
+
+# ... tus líneas actuales (.env, node_modules, etc.) ...
+
+# Archivos del sistema operativo (¡Muy típico que se cuelen!)
+.DS_Store
+Thumbs.db
+
+# Logs de errores de Node
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Carpeta de build / producción (Si usas React, Next.js, Vite, TypeScript, etc.)
+dist/
+build/
+.next/
+out/
