@@ -958,6 +958,34 @@
             document.body.appendChild(link); link.click(); document.body.removeChild(link);
         }
 
+        async function loadHistory() {
+            try {
+                const response = await fetch('/api/process');
+                if(!response.ok) return;
+                const data = await response.json();
+                
+                if (data.history && data.history.length > 0) {
+                    lastHistoryData = data.history.map(r => ({
+                        ...r,
+                        confianzaFloat: parseFloat(r.confianza) || 0,
+                        baseFloat: parseNumber(r.base),
+                        ivaFloat: parseNumber(r.iva),
+                        totalFloat: parseNumber(r.total),
+                        fechaObj: new Date(r.fecha)
+                    }));
+                    filteredData = [...lastHistoryData];
+                    triggerSort(sortCol);
+                    updateDashboard(lastHistoryData);
+                } else {
+                    document.getElementById('historyBody').innerHTML = '<tr><td colspan="5" style="text-align:center;">No hay datos en la hoja de cálculo. Escanea una factura para empezar.</td></tr>';
+                    document.getElementById('kpiCount').innerText = '0';
+                    document.getElementById('kpiTotal').innerText = '0.00€';
+                }
+            } catch (err) {
+                console.error("Error cargando historial", err);
+            }
+        }
+
         function exportDataToPDF() {
             if(filteredData.length === 0) return alert('No hay datos.');
             const { jsPDF } = window.jspdf;
