@@ -83,6 +83,7 @@ def handler(event, context=None):
                         "iva": fila[4] if len(fila) > 4 else "0",
                         "total": fila[5] if len(fila) > 5 else "0",
                         "categoria": fila[6] if len(fila) > 6 else "Otros",
+                        "nombre_archivo": fila[7] if len(fila) > 7 else "",
                         "verificada": fila[8] if len(fila) > 8 else "NO"
                     })
                 return {"statusCode": 200, "headers": headers, "body": json.dumps({"history": history})}
@@ -90,6 +91,28 @@ def handler(event, context=None):
                 return {"statusCode": 200, "headers": headers, "body": json.dumps({"history": []})}
         except Exception as e:
             return {"statusCode": 500, "headers": headers, "body": json.dumps({"error": f"Error fetch history: {str(e)}"})}
+
+    if method == "PUT":
+        try:
+            body_str = event.get("body", "{}")
+            body = json.loads(body_str) if isinstance(body_str, str) else body_str
+            nombre_archivo = body.get("nombre_archivo")
+            
+            if not nombre_archivo:
+                return {"statusCode": 400, "headers": headers, "body": json.dumps({"error": "Falta nombre_archivo para verificar."})}
+                
+            hoja = get_sheet()
+            col_archivos = hoja.col_values(8) # Columna H: NOMBRE ARCHIVO
+            
+            try:
+                # En python los indices empiezan en 0, pero Google Sheets usa base 1
+                fila_idx = col_archivos.index(nombre_archivo) + 1
+                hoja.update_cell(fila_idx, 9, "SI") # Columna I: VERIFICADA
+                return {"statusCode": 200, "headers": headers, "body": json.dumps({"success": True})}
+            except ValueError:
+                return {"statusCode": 404, "headers": headers, "body": json.dumps({"error": "Factura no encontrada."})}
+        except Exception as e:
+            return {"statusCode": 500, "headers": headers, "body": json.dumps({"error": str(e)})}
 
     if method != "POST":
         return {"statusCode": 405, "headers": headers, "body": json.dumps({"error": "Método no permitido"})}

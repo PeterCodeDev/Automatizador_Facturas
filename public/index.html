@@ -239,6 +239,28 @@
             color: #2b8a3e;
         }
 
+        .btn-verify {
+            background: none;
+            border: 1px solid #c92a2a;
+            color: #c92a2a;
+            padding: 2px 6px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.7rem;
+            margin-left: 5px;
+            transition: all 0.2s;
+        }
+
+        .btn-verify:hover {
+            background: #ffe3e3;
+        }
+
+        .warning-icon {
+            color: #f59f00;
+            margin-left: 5px;
+            cursor: help;
+        }
+
         .pdf-icon {
             font-size: 4rem;
             color: #e53e3e;
@@ -621,13 +643,29 @@
                         lastHistoryData = data.history;
                         tbody.innerHTML = data.history.map(row => {
                             const verifClass = row.verificada === 'SI' ? 'si' : 'no';
-                            const valor = row.total && !isNaN(parseNumber(row.total)) ? parseNumber(row.total).toFixed(2) + '€' : (row.total || '-');
+                            const base = parseNumber(row.base);
+                            const iva = parseNumber(row.iva);
+                            const total = parseNumber(row.total);
+                            
+                            // Validación inteligente (Auditoría Aritmética) por si la IA se equivoca
+                            let warning = '';
+                            if (base > 0 && Math.abs((base + iva) - total) > 0.1) {
+                                warning = ' <span class="warning-icon" title="Atención: La suma de Base + IVA no cuadra exactamente con el Total ingresado. ¡Revisar importes!">⚠️</span>';
+                            }
+                            
+                            const valor = total > 0 ? total.toFixed(2) + '€' : (row.total || '-');
+
+                            let verifHtml = `<span class="status-badge ${verifClass}">${row.verificada || 'NO'}</span>`;
+                            if (row.verificada !== 'SI' && row.nombre_archivo) {
+                                verifHtml += `<br><button class="btn-verify" onclick="verifyInvoice('${row.nombre_archivo}')" style="margin-top: 5px;">Aprobar ✅</button>`;
+                            }
+
                             return `<tr>
-                                <td>${row.fecha || '-'}</td>
+                                <td>${row.fecha || '-'}${warning}</td>
                                 <td><strong>${row.empresa || 'Desconocida'}</strong></td>
                                 <td>${row.categoria || 'N/A'}</td>
                                 <td>${valor}</td>
-                                <td><span class="status-badge ${verifClass}">${row.verificada || 'NO'}</span></td>
+                                <td>${verifHtml}</td>
                             </tr>`;
                         }).join('');
 
@@ -642,6 +680,30 @@
                 }
             } catch (e) {
                 tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#e53e3e;">Error de conexión con la API</td></tr>';
+            }
+        }
+
+        // Nueva funcion para aprobación manual
+        async function verifyInvoice(fileName) {
+            if (!confirm('¿Marcar esta factura como verificada y válida en la contabilidad general?')) return;
+            
+            showStatus('<span class="spinner"></span> Aprobando factura y bloqueando edición...', 'loading');
+            try {
+                const response = await fetch('/api/process', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ nombre_archivo: fileName })
+                });
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    showStatus('✅ Factura aprobada con éxito en Google Sheets', 'success');
+                    loadHistory();
+                } else {
+                    showStatus(`Error al aprobar: ${data.error || 'Desconocido'}`, 'error');
+                }
+            } catch (err) {
+                showStatus(`Error de conexión al aprobar: ${err.message}`, 'error');
             }
         }
 

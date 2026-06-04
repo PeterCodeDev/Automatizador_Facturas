@@ -3,6 +3,7 @@ import telebot
 from dotenv import load_dotenv
 from google import genai
 from PIL import Image
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import io
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -147,14 +148,36 @@ def manejar_archivo(message):
         
         hoja.append_row(fila)
 
+        # 5. Creamos teclado en linea para verificacion instantanea
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("✅ Aprobar Factura", callback_data=f"verify_{nombre_archivo}"))
+
         bot.edit_message_text(
-            f"✅ ¡Guardado!\n📂 Archivo: {nombre_archivo}\n🏢 Empresa: {datos.get('empresa')}\n📅 Fecha: {datos.get('fecha')}\n💰 Total: {datos.get('total')}€", 
-            message.chat.id, msg_espera.message_id
+            f"✅ ¡Guardado en Sheets!\n📂 Archivo: {nombre_archivo}\n🏢 Empresa: {datos.get('empresa')}\n📅 Fecha: {datos.get('fecha')}\n💰 Total: {datos.get('total')}€\n\n📌 Estado actual: NO VERIFICADA.", 
+            message.chat.id, msg_espera.message_id, reply_markup=markup
         )
 
     except Exception as e:
         print(f"❌ Error: {e}")
         bot.edit_message_text(f"❌ Error: {str(e)}", message.chat.id, msg_espera.message_id)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("verify_"))
+def callback_verificar(call):
+    # Accion de boton para verificar rapidamente por telegram
+    nombre_archivo = call.data.split("verify_")[1]
+    bot.answer_callback_query(call.id, "Aprobando en Google Sheets...")
+    try:
+        hoja = conectar_sheets()
+        col_archivos = hoja.col_values(8) # Columna H: NOMBRE ARCHIVO
+        fila_idx = col_archivos.index(nombre_archivo) + 1
+        hoja.update_cell(fila_idx, 9, "SI") # Colulmna I: VERIFICADA
+        
+        # Eliminar el boton una vez verificada para no volver a pulsar
+        bot.edit_message_text(f"{call.message.text}\n\n**STATUS ACTUALIZADO: ✅ VERIFICADA**", 
+                              call.message.chat.id, call.message.message_id, reply_markup=None)
+    except Exception as e:
+        bot.send_message(call.message.chat.id, f"❌ No se pudo verificar en remoto: {str(e)}")
+
 
 print("🚀 Bot en marcha... Dile a tu padre que envíe una foto.")
 if __name__ == "__main__":
