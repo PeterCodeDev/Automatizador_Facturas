@@ -37,7 +37,9 @@ def analizar_documento(file_data, mime_type):
     client_gemini = genai.Client(api_key=api_key)
     
     prompt = """Extrae en JSON exacto: empresa, cif, fecha, base, iva, total, categoria.
+Las categorías permitidas son SOLAMENTE: Transporte, Alimentacion, Software, Material, Oficina, Otros.
 Asegúrate de que 'total', 'base' e 'iva' sean números o strings numéricos.
+Añade un campo numérico 'confianza' (0 a 100) que indique tu grado de seguridad en la extracción de los datos visuales.
 Devuelve el resultado estructurado estrictamente en JSON y asegúrate de validar los datos fiscales presentes en el documento."""
 
     response = client_gemini.models.generate_content(
@@ -84,7 +86,8 @@ def handler(event, context=None):
                         "total": fila[5] if len(fila) > 5 else "0",
                         "categoria": fila[6] if len(fila) > 6 else "Otros",
                         "nombre_archivo": fila[7] if len(fila) > 7 else "",
-                        "verificada": fila[8] if len(fila) > 8 else "NO"
+                        "verificada": fila[8] if len(fila) > 8 else "NO",
+                        "confianza": fila[9] if len(fila) > 9 else "100"
                     })
                 return {"statusCode": 200, "headers": headers, "body": json.dumps({"history": history})}
             else:
@@ -134,22 +137,23 @@ def handler(event, context=None):
         hoja = get_sheet()
         
         # Validacion del JSON devuelto por Gemini para campos requeridos
-        campos_requeridos = ['fecha', 'empresa', 'cif', 'base', 'iva', 'total', 'categoria']
+        campos_requeridos = ['fecha', 'empresa', 'cif', 'base', 'iva', 'total', 'categoria', 'confianza']
         for campo in campos_requeridos:
             if campo not in datos:
                 datos[campo] = None
 
+        # Modificación de encabezados para incluir CONFIANZA
         if not hoja.acell("A1").value:
-            hoja.insert_row(["FECHA", "EMPRESA", "CIF", "BASE", "IVA", "TOTAL", "CATEGORIA", "NOMBRE ARCHIVO", "VERIFICADA"], 1)
+            hoja.insert_row(["FECHA", "EMPRESA", "CIF", "BASE", "IVA", "TOTAL", "CATEGORIA", "NOMBRE ARCHIVO", "VERIFICADA", "CONFIANZA"], 1)
 
         extension = ".pdf" if "pdf" in mime_type else ".jpg"
         nombre_archivo = f"doc_{hashlib.md5(file_data).hexdigest()[:12]}{extension}"
         
-        # Guardaremos un campo más "VERIFICADA" para que una persona pueda revisar que la IA no alucinó
+        # Guardaremos los datos extrayendo todo correctamente
         fila = [
             datos.get("fecha"), datos.get("empresa"), datos.get("cif"),
             datos.get("base"), datos.get("iva"), datos.get("total"),
-            datos.get("categoria"), nombre_archivo, "NO"
+            datos.get("categoria"), nombre_archivo, "NO", datos.get("confianza")
         ]
         hoja.append_row(fila)
 
@@ -160,6 +164,7 @@ def handler(event, context=None):
             "fecha": datos.get("fecha"),
             "iva": datos.get("iva"),
             "categoria": datos.get("categoria"),
+            "confianza": datos.get("confianza"),
             "nombre_archivo": nombre_archivo
         }
         return {"statusCode": 200, "headers": headers, "body": json.dumps(result)}

@@ -47,7 +47,7 @@ def analizar_documento(file_bytes, mime_type):
     response = client_gemini.models.generate_content(
         model="gemini-2.5-flash",
         contents=[
-            "Extrae en JSON exacto: empresa, cif, fecha, base, iva, total, categoria. Los importes deben ser puramente numéricos si es posible.",
+            "Extrae en JSON exacto: empresa, cif, fecha, base, iva, total, categoria. Categorías válidas: Transporte, Alimentacion, Software, Material, Oficina, Otros. Añade campo numérico 'confianza' (0 a 100) sobre exactitud.",
             {"mime_type": mime_type, "data": file_bytes}
         ]
     )
@@ -123,14 +123,14 @@ def manejar_archivo(message):
         hoja = conectar_sheets()
         
         # Validación básica para que no falten campos clave
-        campos_requeridos = ['fecha', 'empresa', 'cif', 'base', 'iva', 'total', 'categoria']
+        campos_requeridos = ['fecha', 'empresa', 'cif', 'base', 'iva', 'total', 'categoria', 'confianza']
         for campo in campos_requeridos:
             if campo not in datos:
                 datos[campo] = None
 
         # Si la hoja está vacía, ponemos los encabezados (ahora con NOMBRE ARCHIVO)
         if not hoja.acell('A1').value:
-            encabezados = ["FECHA", "EMPRESA", "CIF", "BASE", "IVA", "TOTAL", "CATEGORIA", "NOMBRE ARCHIVO", "VERIFICADA"]
+            encabezados = ["FECHA", "EMPRESA", "CIF", "BASE", "IVA", "TOTAL", "CATEGORIA", "NOMBRE ARCHIVO", "VERIFICADA", "CONFIANZA"]
             hoja.insert_row(encabezados, 1)
 
         # 4. Preparamos la fila incluyendo el nombre del archivo al final y el campo de verificacion
@@ -143,7 +143,8 @@ def manejar_archivo(message):
             datos.get('total'), 
             datos.get('categoria'),
             nombre_archivo,
-            "NO"
+            "NO",
+            datos.get('confianza')
         ]
         
         hoja.append_row(fila)
@@ -153,7 +154,7 @@ def manejar_archivo(message):
         markup.add(InlineKeyboardButton("✅ Aprobar Factura", callback_data=f"verify_{nombre_archivo}"))
 
         bot.edit_message_text(
-            f"✅ ¡Guardado en Sheets!\n📂 Archivo: {nombre_archivo}\n🏢 Empresa: {datos.get('empresa')}\n📅 Fecha: {datos.get('fecha')}\n💰 Total: {datos.get('total')}€\n\n📌 Estado actual: NO VERIFICADA.", 
+            f"✅ ¡Guardado en Sheets!\n📂 Archivo: {nombre_archivo}\n🏢 Empresa: {datos.get('empresa')}\n📅 Fecha: {datos.get('fecha')}\n💰 Total: {datos.get('total')}€\n🎯 Fiabilidad OCR: {datos.get('confianza')}%\n\n📌 Estado actual: NO VERIFICADA.", 
             message.chat.id, msg_espera.message_id, reply_markup=markup
         )
 

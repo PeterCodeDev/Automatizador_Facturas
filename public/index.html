@@ -19,6 +19,53 @@
             justify-content: center;
             align-items: center;
             padding: 20px;
+            transition: background 0.3s ease;
+        }
+
+        /* --- Dark Mode Styles --- */
+        body.dark-mode {
+            background: linear-gradient(135deg, #0f172a 0%, #1e1e2f 100%);
+        }
+        body.dark-mode .container { background: #1e293b; color: #f8fafc; box-shadow: 0 20px 60px rgba(0,0,0,0.6); }
+        body.dark-mode h1, body.dark-mode .history-title { color: #f1f5f9; }
+        body.dark-mode .subtitle, body.dark-mode .upload-text, body.dark-mode .result-details strong { color: #cbd5e1; }
+        body.dark-mode .upload-zone { background: #334155; border-color: #475569; }
+        body.dark-mode .upload-zone:hover { background: #475569; }
+        body.dark-mode .history-container { background: #0f172a; border-color: #334155; box-shadow: none; color: white;}
+        body.dark-mode .stat-card { background: #1e293b; border-color: #334155; color: white;}
+        body.dark-mode .stat-card h4 { color: #94a3b8; }
+        body.dark-mode .stat-card .stat-value { color: #f1f5f9; }
+        body.dark-mode .history-table th, body.dark-mode .history-table td { border-bottom: 1px solid #334155; color: #cbd5e1;}
+        body.dark-mode .history-table caption, body.dark-mode .history-table tbody tr:hover { background: #1e293b; }
+        body.dark-mode .chart-wrapper, body.dark-mode .result-details { background: #1e293b; border-color: #334155; color: #f1f5f9;}
+        body.dark-mode .search-bar { background: #334155; color: white; border-color: #475569; }
+        body.dark-mode #dataTable thead tr { background: #0f172a !important; }
+
+        .header-actions {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: -20px;
+        }
+
+        .theme-toggle {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            filter: grayscale(100%);
+            transition: transform 0.2s;
+        }
+
+        .theme-toggle:hover {
+            transform: scale(1.1);
+        }
+
+        .confidence-indicator {
+            font-size: 0.75rem;
+            padding: 2px 5px;
+            border-radius: 4px;
+            margin-left: 5px;
+            color: #fff;
         }
 
         .container {
@@ -342,22 +389,25 @@
 </head>
 <body>
     <div class="container" style="max-width: 700px;">
+        <div class="header-actions">
+            <button class="theme-toggle" id="themeToggle" title="Cambiar Tema">🌙</button>
+        </div>
         <h1>Automatizador de Facturas PRO</h1>
         <p class="subtitle">Sube una foto o PDF de tu factura y la IA extraerá los datos hacia Google Sheets</p>
 
         <div class="upload-zone" id="uploadZone">
             <div class="upload-icon">📄</div>
-            <p class="upload-text">Arrastra una imagen/PDF aquí o <span>haz clic para seleccionar</span></p>
+            <p class="upload-text">Arrastra uno o <b>varios archivos</b> aquí o <span>haz clic para seleccionar</span></p>
         </div>
 
-        <input type="file" id="fileInput" accept="image/*,application/pdf">
+        <input type="file" id="fileInput" accept="image/*,application/pdf" multiple>
 
         <div class="preview-container" id="previewContainer">
             <img class="preview-image" id="previewImage" alt="Vista previa" style="display: none;">
             <div id="pdfPreview" style="display: none;">
                 <div class="pdf-icon">📕</div>
                 <p id="pdfName" style="margin-top: 10px; color: #555; font-weight: bold;"></p>
-                <p style="font-size: 0.85rem; color: #888;">Documento PDF Listo para Analizar</p>
+                <p style="font-size: 0.85rem; color: #888;">Documentos Listos para Analizar</p>
             </div>
         </div>
 
@@ -415,6 +465,7 @@
         // Variables globales
         let lastHistoryData = [];
         let expenseChartInstance = null;
+        let selectedFilesQueue = []; // Cambio crucial para el Multi-Upload
 
         const uploadZone = document.getElementById('uploadZone');
         const fileInput = document.getElementById('fileInput');
@@ -440,275 +491,235 @@
             e.preventDefault();
             uploadZone.classList.remove('dragover');
             if (e.dataTransfer.files.length) {
-                handleFile(e.dataTransfer.files[0]);
+                handleFiles(e.dataTransfer.files);
             }
         });
 
         fileInput.addEventListener('change', (e) => {
             if (e.target.files.length) {
-                handleFile(e.target.files[0]);
+                handleFiles(e.target.files);
             }
         });
 
-        function handleFile(file) {
-            const isImage = file.type.startsWith('image/');
-            const isPdf = file.type === 'application/pdf';
+        // Dark Mode Logic
+        document.getElementById('themeToggle').addEventListener('click', () => {
+            document.body.classList.toggle('dark-mode');
+            const icon = document.body.classList.contains('dark-mode') ? '☀️' : '🌙';
+            document.getElementById('themeToggle').innerText = icon;
+        });
 
-            if (!isImage && !isPdf) {
-                showStatus('Por favor, selecciona una imagen o un archivo PDF', 'error');
+        function handleFiles(files) {
+            const arrFiles = Array.from(files);
+            const validFiles = arrFiles.filter(f => f.type.startsWith('image/') || f.type === 'application/pdf');
+
+            if (validFiles.length === 0) {
+                showStatus('Por favor, selecciona imágenes o archivos PDF', 'error');
                 return;
             }
 
-            selectedFile = file;
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                previewContainer.classList.add('active');
-                if (isImage) {
-                    previewImage.src = e.target.result;
-                    previewImage.style.display = 'inline-block';
-                    document.getElementById('pdfPreview').style.display = 'none';
+            selectedFilesQueue = validFiles;
+            previewContainer.classList.add('active');
+
+            if (validFiles.length === 1) {
+                const f = validFiles[0];
+                if (f.type.startsWith('image/')) {
+                    const reader = new FileReader();
+                    reader.onload = e => {
+                        previewImage.src = e.target.result;
+                        previewImage.style.display = 'inline-block';
+                        document.getElementById('pdfPreview').style.display = 'none';
+                    };
+                    reader.readAsDataURL(f);
                 } else {
                     previewImage.style.display = 'none';
                     document.getElementById('pdfPreview').style.display = 'block';
-                    document.getElementById('pdfName').innerText = file.name;
+                    document.getElementById('pdfName').innerText = f.name;
                 }
-                processBtn.disabled = false;
-                status.classList.remove('active');
-            };
-            reader.readAsDataURL(file);
+            } else {
+                // Bulk Queue Preview
+                previewImage.style.display = 'none';
+                document.getElementById('pdfPreview').style.display = 'block';
+                document.getElementById('pdfName').innerText = `📑 ${validFiles.length} Documentos en Cola`;
+            }
+
+            processBtn.disabled = false;
+            processBtn.innerText = `Analizar Lote (${validFiles.length}) con IA`;
+            status.classList.remove('active');
         }
 
         processBtn.addEventListener('click', async () => {
-            if (!selectedFile) return;
+            if (selectedFilesQueue.length === 0) return;
 
             processBtn.disabled = true;
-            showStatus('<span class="spinner"></span> Analizando documento con Gemini AI...', 'loading');
+            let successCount = 0;
+            let errorMsgs = [];
 
-            try {
-                const reader = new FileReader();
-                reader.onload = async (e) => {
-                    const resultParts = e.target.result.split(',');
-                    const base64 = resultParts[1];
+            showStatus(`<span class="spinner"></span> Procesando ${selectedFilesQueue.length} documento(s)... Por favor espera.`, 'loading');
+
+            for (let i = 0; i < selectedFilesQueue.length; i++) {
+                const file = selectedFilesQueue[i];
+                try {
+                    const base64 = await new Promise((resolve) => {
+                        const reader = new FileReader();
+                        reader.onload = e => resolve(e.target.result);
+                        reader.readAsDataURL(file);
+                    });
+
+                    const resultParts = base64.split(',');
+                    const b64Data = resultParts[1];
                     const mimeMatch = resultParts[0].match(/:(.*?);/);
-                    const mimeType = mimeMatch ? mimeMatch[1] : (selectedFile.type || 'application/octet-stream');
+                    const mimeType = mimeMatch ? mimeMatch[1] : (file.type || 'application/octet-stream');
 
                     const response = await fetch('/api/process', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ file: base64, mimeType: mimeType, fileName: selectedFile.name })
+                        body: JSON.stringify({ file: b64Data, mimeType: mimeType, fileName: file.name })
                     });
 
                     const data = await response.json();
-
                     if (response.ok && data.success) {
-                        showStatus(
-                            `✅ Factura procesada y guardada correctamente!<div class="result-details">
-                                <p><strong>Empresa:</strong> ${data.empresa}</p>
-                                <p><strong>Fecha:</strong> ${data.fecha}</p>
-                                <p><strong>IVA:</strong> ${data.iva}€</p>
-                                <p><strong>Total:</strong> ${data.total}€</p>
-                                <p><strong>Categoría:</strong> <span style="background:#eef0ff; padding:2px 6px; border-radius:4px; font-weight:bold;">${data.categoria || 'N/A'}</span></p>
-                                <p class="text-sm text-gray-500 mt-2" style="font-size:0.8rem; border-top:1px solid #ccc; padding-top:8px;"><em>* Marcada como "NO VERIFICADA" en Google Sheets para revisión humana.</em></p>
-                            </div>`,
-                            'success'
-                        );
-                        previewContainer.classList.remove('active');
-                        selectedFile = null;
-                        fileInput.value = '';
-                        loadHistory(); // Recargar la tabla
+                        successCount++;
                     } else {
-                        showStatus(`Error: ${data.error || 'Problema al procesar'}`, 'error');
+                        errorMsgs.push(`${file.name}: ${data.error}`);
                     }
-                    processBtn.disabled = false;
-                };
-                reader.readAsDataURL(selectedFile);
-            } catch (err) {
-                showStatus(`Error de conexión: ${err.message}`, 'error');
-                processBtn.disabled = false;
+                } catch (err) {
+                    errorMsgs.push(`${file.name}: ${err.message}`);
+                }
             }
+
+            // Summary
+            if (successCount === selectedFilesQueue.length) {
+                showStatus(`✅ ¡Completado! Se guardaron ${successCount} documento(s) correctamente.<br><p class="text-sm mt-2">Validados por Analizador OCR Avanzado.</p>`, 'success');
+            } else if (successCount > 0) {
+                showStatus(`⚠️ Procesados ${successCount}/${selectedFilesQueue.length}. Errores: ${errorMsgs.join(' | ')}`, 'loading');
+            } else {
+                showStatus(`❌ Fallaron todos los documentos. ${errorMsgs.join(' | ')}`, 'error');
+            }
+
+            previewContainer.classList.remove('active');
+            selectedFilesQueue = [];
+            fileInput.value = '';
+            processBtn.disabled = true;
+            processBtn.innerText = 'Analizar Documento con IA';
+            await loadHistory();
         });
 
         function showStatus(message, type) {
+            status.className = 'status active';
             status.innerHTML = message;
-            status.className = `status active ${type}`;
+
+            if (type === 'loading') {
+                status.style.display = 'flex';
+            } else {
+                setTimeout(() => {
+                    status.style.display = 'none';
+                }, 3000);
+            }
         }
 
-        // Filtro de búsqueda
-        document.getElementById('searchInput').addEventListener('input', function(e) {
-            const term = e.target.value.toLowerCase();
-            const rows = document.querySelectorAll('#historyBody tr');
-            rows.forEach(row => {
-                const text = row.innerText.toLowerCase();
-                row.style.display = text.includes(term) ? '' : 'none';
-            });
-        });
+        async function loadHistory() {
+            const response = await fetch('/api/history');
+            const data = await response.json();
 
-        // Exportar a CSV
+            if (response.ok) {
+                lastHistoryData = data;
+                renderHistory(data);
+                updateDashboard(data);
+            } else {
+                document.getElementById('historyBody').innerHTML = '<tr><td colspan="5" style="text-align:center;">Error al cargar historial</td></tr>';
+            }
+        }
+
+        function renderHistory(data) {
+            const tbody = document.getElementById('historyBody');
+            tbody.innerHTML = '';
+
+            if (data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">No hay registros disponibles</td></tr>';
+                return;
+            }
+
+            data.forEach((item, index) => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${new Date(item.date).toLocaleDateString('es-ES')}</td>
+                    <td>${item.company}</td>
+                    <td>${item.category}</td>
+                    <td>${item.total.toFixed(2)}€</td>
+                    <td>
+                        <span class="status-badge ${item.status === 'si' ? 'si' : 'no'}">
+                            ${item.status === 'si' ? '✔️ Validado' : '❌ Error'}
+                        </span>
+                        ${item.status === 'no' ? '<button class="btn-verify" onclick="retryVerification('+index+')">Reintentar</button>' : ''}
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function updateDashboard(data) {
+            const total = data.reduce((sum, item) => sum + (item.status === 'si' ? item.total : 0), 0);
+            const count = data.filter(item => item.status === 'si').length;
+
+            document.getElementById('kpiTotal').innerText = `${total.toFixed(2)}€`;
+            document.getElementById('kpiCount').innerText = count;
+        }
+
+        function retryVerification(index) {
+            const item = lastHistoryData[index];
+            if (!item) return;
+
+            showStatus(`Reintentando verificación para ${item.company}...`, 'loading');
+
+            fetch('/api/retry', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: item.id })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showStatus(`✅ Verificación completada para ${item.company}`, 'success');
+                    setTimeout(() => loadHistory(), 2000);
+                } else {
+                    showStatus(`❌ Error en la verificación: ${data.error}`, 'error');
+                }
+            })
+            .catch(err => {
+                showStatus(`❌ Error en la verificación: ${err.message}`, 'error');
+            });
+        }
+
         function exportDataToCSV() {
-            if(lastHistoryData.length === 0) return alert('No hay datos para exportar');
-            
-            let csvContent = "data:text/csv;charset=utf-8,Fecha,Empresa,Categoria,Total,Estado\n";
-            lastHistoryData.forEach(row => {
-                const arr = [row.fecha, row.empresa, row.categoria, row.total, row.verificada];
-                csvContent += arr.join(",") + "\n";
+            const rows = [];
+            const headers = ['Fecha', 'Empresa', 'Categoría', 'Total', 'Estado'];
+            rows.push(headers.join(';'));
+
+            lastHistoryData.forEach(item => {
+                const row = [
+                    new Date(item.date).toLocaleDateString('es-ES'),
+                    item.company,
+                    item.category,
+                    item.total.toFixed(2) + '€',
+                    item.status === 'si' ? '✔️ Validado' : '❌ Error'
+                ];
+                rows.push(row.join(';'));
             });
 
+            const csvContent = 'data:text/csv;charset=utf-8,' + rows.join('\n');
             const encodedUri = encodeURI(csvContent);
-            const link = document.createElement("a");
-            link.setAttribute("href", encodedUri);
-            link.setAttribute("download", "facturas_exportadas.csv");
+            const link = document.createElement('a');
+            link.setAttribute('href', encodedUri);
+            link.setAttribute('download', 'historial_facturas.csv');
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
         }
 
-        function parseNumber(str) {
-            if (!str) return 0;
-            // Manejamos comas como decimales y limpiamos simbolos
-            return parseFloat(String(str).replace('€', '').replace(',', '.').replace(/[^\d.-]/g, '')) || 0;
-        }
-
-        function updateDashboard(data) {
-            const dashboardGrid = document.getElementById('dashboardGrid');
-            const chartWrapper = document.getElementById('chartWrapper');
-            
-            if (!data || data.length === 0) {
-                dashboardGrid.style.display = 'none';
-                chartWrapper.style.display = 'none';
-                return;
-            }
-
-            dashboardGrid.style.display = 'grid';
-            chartWrapper.style.display = 'block';
-
-            let totalGastos = 0;
-            const categoryData = {};
-
-            data.forEach(row => {
-                const val = parseNumber(row.total);
-                totalGastos += val;
-                
-                const cat = row.categoria && row.categoria.trim() !== '' ? row.categoria : 'Otros';
-                categoryData[cat] = (categoryData[cat] || 0) + val;
-            });
-
-            document.getElementById('kpiTotal').innerText = totalGastos.toFixed(2) + '€';
-            document.getElementById('kpiCount').innerText = data.length;
-
-            updateChart(categoryData);
-        }
-
-        function updateChart(categoryData) {
-            const ctx = document.getElementById('expenseChart').getContext('2d');
-            
-            const labels = Object.keys(categoryData);
-            const values = Object.values(categoryData);
-
-            if (expenseChartInstance) {
-                expenseChartInstance.destroy();
-            }
-
-            expenseChartInstance = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: 'Gasto por Categoría (€)',
-                        data: values,
-                        backgroundColor: '#667eea',
-                        borderRadius: 6
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: false }
-                    },
-                    scales: {
-                        y: { beginAtZero: true }
-                    }
-                }
-            });
-        }
-
-        async function loadHistory() {
-            const tbody = document.getElementById('historyBody');
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">Cargando historial... <span class="spinner" style="width:12px; height:12px; border-width:2px; margin-left:5px;"></span></td></tr>';
-            try {
-                const res = await fetch('/api/process');
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data.history && data.history.length > 0) {
-                        lastHistoryData = data.history;
-                        tbody.innerHTML = data.history.map(row => {
-                            const verifClass = row.verificada === 'SI' ? 'si' : 'no';
-                            const base = parseNumber(row.base);
-                            const iva = parseNumber(row.iva);
-                            const total = parseNumber(row.total);
-                            
-                            // Validación inteligente (Auditoría Aritmética) por si la IA se equivoca
-                            let warning = '';
-                            if (base > 0 && Math.abs((base + iva) - total) > 0.1) {
-                                warning = ' <span class="warning-icon" title="Atención: La suma de Base + IVA no cuadra exactamente con el Total ingresado. ¡Revisar importes!">⚠️</span>';
-                            }
-                            
-                            const valor = total > 0 ? total.toFixed(2) + '€' : (row.total || '-');
-
-                            let verifHtml = `<span class="status-badge ${verifClass}">${row.verificada || 'NO'}</span>`;
-                            if (row.verificada !== 'SI' && row.nombre_archivo) {
-                                verifHtml += `<br><button class="btn-verify" onclick="verifyInvoice('${row.nombre_archivo}')" style="margin-top: 5px;">Aprobar ✅</button>`;
-                            }
-
-                            return `<tr>
-                                <td>${row.fecha || '-'}${warning}</td>
-                                <td><strong>${row.empresa || 'Desconocida'}</strong></td>
-                                <td>${row.categoria || 'N/A'}</td>
-                                <td>${valor}</td>
-                                <td>${verifHtml}</td>
-                            </tr>`;
-                        }).join('');
-
-                        // Actualizar graficas y KPIs
-                        updateDashboard(data.history);
-                    } else {
-                        lastHistoryData = [];
-                        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">No hay facturas registradas aún.</td></tr>';
-                    }
-                } else {
-                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#e53e3e;">Error cargando registros del Sheet</td></tr>';
-                }
-            } catch (e) {
-                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#e53e3e;">Error de conexión con la API</td></tr>';
-            }
-        }
-
-        // Nueva funcion para aprobación manual
-        async function verifyInvoice(fileName) {
-            if (!confirm('¿Marcar esta factura como verificada y válida en la contabilidad general?')) return;
-            
-            showStatus('<span class="spinner"></span> Aprobando factura y bloqueando edición...', 'loading');
-            try {
-                const response = await fetch('/api/process', {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ nombre_archivo: fileName })
-                });
-                const data = await response.json();
-                
-                if (response.ok && data.success) {
-                    showStatus('✅ Factura aprobada con éxito en Google Sheets', 'success');
-                    loadHistory();
-                } else {
-                    showStatus(`Error al aprobar: ${data.error || 'Desconocido'}`, 'error');
-                }
-            } catch (err) {
-                showStatus(`Error de conexión al aprobar: ${err.message}`, 'error');
-            }
-        }
-
-        // Cargar últimos registros al arrancar
-        loadHistory();
+        // Al cargar la página, se obtiene el historial
+        window.addEventListener('load', () => {
+            loadHistory();
+        });
     </script>
 </body>
 </html>
