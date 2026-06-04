@@ -28,6 +28,33 @@ def get_sheet():
     sheet_name = os.environ.get("SHEET_NAME", "Facturas_Adrian")
     return client.open(sheet_name).sheet1
 
+def calcular_totales(mes_anio=None):
+    # Función auxiliar para calcular totales mensuales (analitica backend)
+    hoja = get_sheet()
+    filas = hoja.get_all_values()
+    if len(filas) <= 1:
+        return 0, 0
+    
+    total_importe = 0
+    total_iva = 0
+    
+    for fila in filas[1:]:
+        # Omitimos filas sin importe total
+        if len(fila) > 5 and fila[5]:
+            try:
+                # Extraer valor y sumarlo
+                val = float(str(fila[5]).replace('€', '').replace(',', '.').strip())
+                # Si se pide un mes especifico (ej: 06/2026), se extrae de la fecha(Columna A)
+                if mes_anio:
+                    fecha = fila[0] if len(fila) > 0 else ""
+                    if mes_anio in fecha:
+                        total_importe += val
+                else:
+                    total_importe += val
+            except ValueError:
+                pass
+    return round(total_importe, 2)
+
 
 def analizar_documento(file_data, mime_type):
     api_key = os.environ.get("GEMINI_API_KEY")
@@ -70,6 +97,12 @@ def handler(event, context=None):
 
     if method == "GET":
         try:
+            # Soportar queries para estadisticas puras desde el backend
+            path = event.get("path", "")
+            if "stats" in path:
+                total_historico = calcular_totales()
+                return {"statusCode": 200, "headers": headers, "body": json.dumps({"historico": total_historico})}
+
             hoja = get_sheet()
             todas_filas = hoja.get_all_values()
             
@@ -141,6 +174,15 @@ def handler(event, context=None):
         for campo in campos_requeridos:
             if campo not in datos:
                 datos[campo] = None
+
+        # Limpieza y formateo de datos para una base de datos más limpia
+        for num_field in ['base', 'iva', 'total']:
+            if datos.get(num_field):
+                val = str(datos[num_field]).replace(',', '.').replace('€', '').strip()
+                try:
+                    datos[num_field] = round(float(val), 2)
+                except ValueError:
+                    datos[num_field] = 0
 
         # Modificación de encabezados para incluir CONFIANZA
         if not hoja.acell("A1").value:

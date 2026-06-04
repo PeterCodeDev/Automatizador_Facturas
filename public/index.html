@@ -285,6 +285,11 @@
             background: #d3f9d8;
             color: #2b8a3e;
         }
+        
+        .status-badge.reparado {
+            background: #e0e7ff;
+            color: #3730a3;
+        }
 
         .btn-verify {
             background: none;
@@ -720,6 +725,96 @@
         window.addEventListener('load', () => {
             loadHistory();
         });
+
+        function parseNumber(value) {
+            if (typeof value === 'number') return value;
+            if (typeof value !== 'string') return 0;
+
+            value = value.replace('€', '').replace('.', '').replace(',', '.').trim();
+            const parsed = parseFloat(value);
+            return isNaN(parsed) ? 0 : parsed;
+        }
+
+        function verifyInvoice(fileName) {
+            showStatus(`Verificando ${fileName}...`, 'loading');
+
+            fetch('/api/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ fileName: fileName })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showStatus(`✅ Factura ${fileName} verificada con éxito`, 'success');
+                    setTimeout(() => loadHistory(), 2000);
+                } else {
+                    showStatus(`❌ Error al verificar ${fileName}: ${data.error}`, 'error');
+                }
+            })
+            .catch(err => {
+                showStatus(`❌ Error al verificar ${fileName}: ${err.message}`, 'error');
+            });
+        }
+
+        // Sobrescribir la función renderHistory para incluir lógica de auditoría y reparación
+        function renderHistory(data) {
+            const tbody = document.getElementById('historyBody');
+            tbody.innerHTML = '';
+
+            if (data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">No hay registros disponibles</td></tr>';
+                return;
+            }
+
+            data.forEach((row, index) => {
+                const base = parseNumber(row.base);
+                const iva = parseNumber(row.iva);
+                const total = parseNumber(row.total);
+                const conf = parseFloat(row.confianza) || 0;
+                
+                let warning = '';
+                let autoReparado = false;
+                
+                // Validación inteligente (Auditoría Aritmética) y AUTO-RERPARACIÓN visual
+                if (base > 0 && Math.abs((base + iva) - total) > 0.1) {
+                    warning = ' <span class="warning-icon" title="Atención: Base + IVA = '+(base+iva).toFixed(2)+' pero el Total es '+total+'. ¡Revisar importes en Google Sheets!">⚠️</span>';
+                } else if (base > 0 && iva > 0 && total === 0) {
+                    // Reparacion algoritmica puramente Frontend
+                    row.total = (base + iva).toFixed(2);
+                    autoReparado = true;
+                    warning = ' <span class="warning-icon" style="color:#3730a3;" title="Auto-calculado: La IA omitió el total, pero se ha calculado sumando Base+IVA">💡</span>';
+                }
+                
+                // Color por nivel de confianza de la IA
+                let bgConf = '#10b981'; // Verde
+                if (conf < 70) bgConf = '#ef4444'; // Rojo
+                else if (conf < 90) bgConf = '#f59f00'; // Naranja
+                let confBadge = conf > 0 ? `<span class="confidence-indicator" style="background:${bgConf};" title="Certidumbre OCR">🎯 ${conf}%</span>` : '';
+
+                const valor = total > 0 ? total.toFixed(2) + '€' : (row.total || '-');
+
+                let cssBadge = verifClass;
+                let textBadge = row.verificada || 'NO';
+                if (autoReparado) {
+                    cssBadge = 'reparado';
+                    textBadge = 'AUTO';
+                }
+
+                let verifHtml = `<span class="status-badge ${cssBadge}">${textBadge}</span>`;
+                if (row.verificada !== 'SI' && row.nombre_archivo) {
+                    verifHtml += `<br><button class="btn-verify" onclick="verifyInvoice('${row.nombre_archivo}')" style="margin-top: 5px;">Aprobar ✅</button>`;
+                }
+
+                return `<tr>
+                    <td>${new Date(row.fecha).toLocaleDateString('es-ES')}</td>
+                    <td>${row.empresa}</td>
+                    <td>${row.categoria}</td>
+                    <td>${valor}${warning}${confBadge}</td>
+                    <td>${verifHtml}</td>
+                </tr>`;
+            }).join('');
+        }
     </script>
 </body>
 </html>
