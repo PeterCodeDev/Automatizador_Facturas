@@ -244,10 +244,82 @@
             color: #e53e3e;
             margin-bottom: 15px;
         }
+
+        /* Dashboards y Utilidades Avanzadas */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .stat-card {
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+        }
+
+        .stat-card h4 {
+            color: #64748b;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 5px;
+        }
+
+        .stat-card .stat-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .chart-wrapper {
+            margin-top: 20px;
+            background: #fff;
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .toolbar {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            gap: 10px;
+        }
+
+        .search-bar {
+            flex-grow: 1;
+            padding: 8px 12px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            font-size: 0.85rem;
+        }
+
+        .btn-export {
+            background: #10b981;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+
+        .btn-export:hover {
+            background: #059669;
+        }
     </style>
+    <!-- Chart.js para gráficos -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-    <div class="container" style="max-width: 650px;">
+    <div class="container" style="max-width: 700px;">
         <h1>Automatizador de Facturas PRO</h1>
         <p class="subtitle">Sube una foto o PDF de tu factura y la IA extraerá los datos hacia Google Sheets</p>
 
@@ -271,28 +343,57 @@
 
         <div class="status" id="status"></div>
 
+        <!-- Dashboard Financiero -->
+        <div class="dashboard-grid" id="dashboardGrid" style="display:none;">
+            <div class="stat-card">
+                <h4>Gasto Total Acomulado</h4>
+                <div class="stat-value" id="kpiTotal">0.00€</div>
+            </div>
+            <div class="stat-card">
+                <h4>Facturas Procesadas</h4>
+                <div class="stat-value" id="kpiCount">0</div>
+            </div>
+        </div>
+
+        <div class="chart-wrapper" id="chartWrapper" style="display:none;">
+            <canvas id="expenseChart" height="200"></canvas>
+        </div>
+
         <div class="history-container">
             <div class="history-title">
-                <span>Últimas Facturas (Google Sheets)</span>
+                <span>Registros Recientes</span>
                 <button onclick="loadHistory()" style="background:none; border:none; color:#667eea; cursor:pointer; font-size:1.2rem;" title="Actualizar historial">🔄</button>
             </div>
-            <table class="history-table">
-                <thead>
-                    <tr>
-                        <th>Fecha</th>
-                        <th>Empresa</th>
-                        <th>Total</th>
-                        <th>Estado</th>
-                    </tr>
-                </thead>
-                <tbody id="historyBody">
-                    <tr><td colspan="4" style="text-align:center;">Cargando historial...</td></tr>
-                </tbody>
-            </table>
+            
+            <div class="toolbar">
+                <input type="text" id="searchInput" class="search-bar" placeholder="🔍 Buscar empresa, fecha o importe...">
+                <button class="btn-export" onclick="exportDataToCSV()">📥 Exportar CSV</button>
+            </div>
+
+            <div style="max-height: 250px; overflow-y: auto; border: 1px solid #eee; border-radius:6px;">
+                <table class="history-table" id="dataTable">
+                    <thead>
+                        <tr style="position: sticky; top:0; background: #f8f9ff; z-index: 1;">
+                            <th>Fecha</th>
+                            <th>Empresa</th>
+                            <th>Categoría</th>
+                            <th>Total</th>
+                            <th>Estado</th>
+                        </tr>
+                    </thead>
+                    <tbody id="historyBody">
+                        <tr><td colspan="5" style="text-align:center;">Cargando historial...</td></tr>
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 
     <script>
+        // Variables globales
+        let lastHistoryData = [];
+        let expenseChartInstance = null;
+
         const uploadZone = document.getElementById('uploadZone');
         const fileInput = document.getElementById('fileInput');
         const previewContainer = document.getElementById('previewContainer');
@@ -410,32 +511,137 @@
             status.className = `status active ${type}`;
         }
 
+        // Filtro de búsqueda
+        document.getElementById('searchInput').addEventListener('input', function(e) {
+            const term = e.target.value.toLowerCase();
+            const rows = document.querySelectorAll('#historyBody tr');
+            rows.forEach(row => {
+                const text = row.innerText.toLowerCase();
+                row.style.display = text.includes(term) ? '' : 'none';
+            });
+        });
+
+        // Exportar a CSV
+        function exportDataToCSV() {
+            if(lastHistoryData.length === 0) return alert('No hay datos para exportar');
+            
+            let csvContent = "data:text/csv;charset=utf-8,Fecha,Empresa,Categoria,Total,Estado\n";
+            lastHistoryData.forEach(row => {
+                const arr = [row.fecha, row.empresa, row.categoria, row.total, row.verificada];
+                csvContent += arr.join(",") + "\n";
+            });
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", "facturas_exportadas.csv");
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function parseNumber(str) {
+            if (!str) return 0;
+            // Manejamos comas como decimales y limpiamos simbolos
+            return parseFloat(String(str).replace('€', '').replace(',', '.').replace(/[^\d.-]/g, '')) || 0;
+        }
+
+        function updateDashboard(data) {
+            const dashboardGrid = document.getElementById('dashboardGrid');
+            const chartWrapper = document.getElementById('chartWrapper');
+            
+            if (!data || data.length === 0) {
+                dashboardGrid.style.display = 'none';
+                chartWrapper.style.display = 'none';
+                return;
+            }
+
+            dashboardGrid.style.display = 'grid';
+            chartWrapper.style.display = 'block';
+
+            let totalGastos = 0;
+            const categoryData = {};
+
+            data.forEach(row => {
+                const val = parseNumber(row.total);
+                totalGastos += val;
+                
+                const cat = row.categoria && row.categoria.trim() !== '' ? row.categoria : 'Otros';
+                categoryData[cat] = (categoryData[cat] || 0) + val;
+            });
+
+            document.getElementById('kpiTotal').innerText = totalGastos.toFixed(2) + '€';
+            document.getElementById('kpiCount').innerText = data.length;
+
+            updateChart(categoryData);
+        }
+
+        function updateChart(categoryData) {
+            const ctx = document.getElementById('expenseChart').getContext('2d');
+            
+            const labels = Object.keys(categoryData);
+            const values = Object.values(categoryData);
+
+            if (expenseChartInstance) {
+                expenseChartInstance.destroy();
+            }
+
+            expenseChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Gasto por Categoría (€)',
+                        data: values,
+                        backgroundColor: '#667eea',
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: { beginAtZero: true }
+                    }
+                }
+            });
+        }
+
         async function loadHistory() {
             const tbody = document.getElementById('historyBody');
-            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;">Cargando historial... <span class="spinner" style="width:12px; height:12px; border-width:2px; margin-left:5px;"></span></td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">Cargando historial... <span class="spinner" style="width:12px; height:12px; border-width:2px; margin-left:5px;"></span></td></tr>';
             try {
                 const res = await fetch('/api/process');
                 if (res.ok) {
                     const data = await res.json();
                     if (data.history && data.history.length > 0) {
+                        lastHistoryData = data.history;
                         tbody.innerHTML = data.history.map(row => {
                             const verifClass = row.verificada === 'SI' ? 'si' : 'no';
-                            const valor = row.total && !isNaN(row.total.replace(',', '.')) ? row.total + '€' : (row.total || '-');
+                            const valor = row.total && !isNaN(parseNumber(row.total)) ? parseNumber(row.total).toFixed(2) + '€' : (row.total || '-');
                             return `<tr>
                                 <td>${row.fecha || '-'}</td>
                                 <td><strong>${row.empresa || 'Desconocida'}</strong></td>
+                                <td>${row.categoria || 'N/A'}</td>
                                 <td>${valor}</td>
                                 <td><span class="status-badge ${verifClass}">${row.verificada || 'NO'}</span></td>
                             </tr>`;
                         }).join('');
+
+                        // Actualizar graficas y KPIs
+                        updateDashboard(data.history);
                     } else {
-                        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;">No hay facturas registradas aún.</td></tr>';
+                        lastHistoryData = [];
+                        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">No hay facturas registradas aún.</td></tr>';
                     }
                 } else {
-                    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#e53e3e;">Error cargando registros del Sheet</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#e53e3e;">Error cargando registros del Sheet</td></tr>';
                 }
             } catch (e) {
-                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#e53e3e;">Error de conexión con la API</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#e53e3e;">Error de conexión con la API</td></tr>';
             }
         }
 

@@ -71,15 +71,18 @@ def handler(event, context=None):
             hoja = get_sheet()
             todas_filas = hoja.get_all_values()
             
-            # Devolvemos hasta las 5 filas más recientes
+            # Devolvemos hasta las 50 filas más recientes para alimentar el dashboard frontend
             if len(todas_filas) > 1:
-                recientes = todas_filas[1:][-5:]
+                recientes = todas_filas[1:][-50:]
                 history = []
                 for fila in reversed(recientes):
                     history.append({
                         "fecha": fila[0] if len(fila) > 0 else "",
                         "empresa": fila[1] if len(fila) > 1 else "",
-                        "total": fila[5] if len(fila) > 5 else "",
+                        "base": fila[3] if len(fila) > 3 else "0",
+                        "iva": fila[4] if len(fila) > 4 else "0",
+                        "total": fila[5] if len(fila) > 5 else "0",
+                        "categoria": fila[6] if len(fila) > 6 else "Otros",
                         "verificada": fila[8] if len(fila) > 8 else "NO"
                     })
                 return {"statusCode": 200, "headers": headers, "body": json.dumps({"history": history})}

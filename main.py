@@ -57,6 +57,43 @@ def analizar_documento(file_bytes, mime_type):
     return json.loads(texto.strip())
 
 # 4. EL BOT "ESCUCHANDO" FOTOS Y DOCUMENTOS (PDF)
+@bot.message_handler(commands=['start', 'help'])
+def mensaje_bienvenida(message):
+    texto = (
+        "👋 ¡Hola! Soy tu bot automatizador de facturas.\n\n"
+        "📸 Envíame una **FOTO** de un ticket de compra.\n"
+        "📕 O envíame un **DOCUMENTO PDF** de una factura.\n\n"
+        "Yo me encargaré de extraer los datos con Inteligencia Artificial (Empresa, CIF, Fecha, Base, IVA, Total) "
+        "y los guardaré automáticamente en tu Google Sheets.\n\n"
+        "También puedes consultar el resumen de gastos escribiendo /stats"
+    )
+    bot.reply_to(message, texto)
+
+@bot.message_handler(commands=['stats'])
+def stats_rapidas(message):
+    msg = bot.reply_to(message, "📊 Calculando estadísticas desde Google Sheets...")
+    try:
+        hoja = conectar_sheets()
+        filas = hoja.get_all_values()
+        if len(filas) > 1:
+            total_gastos = 0
+            for f in filas[1:]:
+                import re
+                if len(f) > 5:
+                    valor_str = str(f[5]).replace(',', '.').replace('€', '').strip()
+                    numeros = re.findall(r"[-+]?\d*\.\d+|\d+", valor_str)
+                    if numeros:
+                        total_gastos += float(numeros[0])
+            
+            respuesta = f"📈 **Resumen de Facturas:**\n\n📄 Facturas registradas: {len(filas)-1}\n💰 Gasto Total: {total_gastos:.2f}€"
+        else:
+            respuesta = "Aún no tienes facturas registradas."
+        
+        bot.edit_message_text(respuesta, message.chat.id, msg.message_id)
+    except Exception as e:
+        bot.edit_message_text(f"❌ Error al consultar las estadísticas: {e}", message.chat.id, msg.message_id)
+
+
 @bot.message_handler(content_types=['photo', 'document'])
 def manejar_archivo(message):
     print("🔔 ¡Ha llegado un archivo!")
