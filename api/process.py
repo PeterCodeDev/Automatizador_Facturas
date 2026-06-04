@@ -143,6 +143,20 @@ def handler(event, context=None):
             try:
                 # En python los indices empiezan en 0, pero Google Sheets usa base 1
                 fila_idx = col_archivos.index(nombre_archivo) + 1
+                
+                # Actualización de datos corregidos manualmente por el usuario (Human-In-The-Loop Correction)
+                empresa_nueva = body.get("empresa")
+                categoria_nueva = body.get("categoria")
+                total_nuevo = body.get("total")
+                
+                # Batch update params: Actualizaciones condicionales sobrescribiendo la IA si el humano lo corrigió
+                if empresa_nueva:
+                    hoja.update_cell(fila_idx, 2, empresa_nueva) # B: EMPRESA
+                if categoria_nueva:
+                    hoja.update_cell(fila_idx, 7, categoria_nueva) # G: CATEGORIA
+                if total_nuevo is not None:
+                    hoja.update_cell(fila_idx, 6, total_nuevo) # F: TOTAL
+                    
                 hoja.update_cell(fila_idx, 9, "SI") # Columna I: VERIFICADA
                 return {"statusCode": 200, "headers": headers, "body": json.dumps({"success": True})}
             except ValueError:

@@ -448,6 +448,37 @@
         .sortable { cursor: pointer; user-select: none; }
         .sortable:hover { background: rgba(0,0,0,0.05); }
 
+        /* Funcionalidades PRO Adicionales */
+        .editable-cell {
+            transition: all 0.2s;
+            border-radius: 4px;
+            padding: 2px 5px;
+        }
+        .editable-cell:hover {
+            background-color: rgba(102, 126, 234, 0.1);
+            outline: 1px dashed #667eea;
+            cursor: text;
+        }
+        .editable-cell:focus {
+            background-color: white;
+            outline: 2px solid #667eea;
+            color: #333;
+        }
+        body.dark-mode .editable-cell:focus { background-color: #334155; color: white; }
+
+        .btn-audio {
+            background: #f59f00;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+        .btn-audio:hover { background: #e67e22; }
+
     </style>
     <!-- Chart.js para gráficos -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -531,6 +562,7 @@
                 <div style="display:flex; gap:5px;">
                     <button class="btn-export" onclick="exportDataToCSV()">📥 CSV</button>
                     <button class="btn-export" onclick="exportDataToPDF()" style="background:#e83e8c;">📄 PDF</button>
+                    <button class="btn-audio" onclick="readDashboardAudio()" title="Accesibilidad: Leer resumen">🔊 Escuchar</button>
                 </div>
             </div>
 
@@ -596,7 +628,7 @@
             if (e.target.id !== 'btnOpenWebcam') fileInput.click();
         });
         uploadZone.addEventListener('dragover', (e) => { e.preventDefault(); uploadZone.classList.add('dragover'); });
-        uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'); );
+        uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
         uploadZone.addEventListener('drop', (e) => {
             e.preventDefault();
             uploadZone.classList.remove('dragover');
@@ -807,11 +839,14 @@
                     verifHtml += `<br><button class="btn-verify" onclick="verifyInvoice('${row.nombre_archivo}')" style="margin-top:5px;">Aprobar ✅</button>`;
                 }
 
-                return `<tr>
+                const isEditable = row.verificada !== 'SI';
+                const fileSafeId = (row.nombre_archivo || '').replace(/[^a-zA-Z0-9]/g, '');
+
+                return `<tr id="tr-${fileSafeId}">
                     <td>${row.fecha || '-'}${warning}</td>
-                    <td><strong>${row.empresa || 'Desconocida'}</strong> ${confBadge}</td>
-                    <td>${row.categoria || 'N/A'}</td>
-                    <td>${row.totalFloat > 0 ? row.totalFloat.toFixed(2)+'€' : '-'}</td>
+                    <td ${isEditable ? 'contenteditable="true" title="Clic para editar empresa"' : ''} class="${isEditable ? 'editable-cell' : ''}" id="empresa-${fileSafeId}"><strong>${row.empresa || 'Desconocida'}</strong> ${confBadge}</td>
+                    <td ${isEditable ? 'contenteditable="true" title="Clic para editar categoría"' : ''} class="${isEditable ? 'editable-cell' : ''}" id="cat-${fileSafeId}">${row.categoria || 'N/A'}</td>
+                    <td ${isEditable ? 'contenteditable="true" title="Clic para corregir el importe"' : ''} class="${isEditable ? 'editable-cell' : ''}" id="total-${fileSafeId}">${row.totalFloat > 0 ? row.totalFloat.toFixed(2) : '0.00'}</td>
                     <td>${verifHtml}</td>
                 </tr>`;
             }).join('');
@@ -864,11 +899,54 @@
         async function verifyInvoice(fileName) {
             showStatus('<span class="spinner"></span> Firmando y auditando recibo...', 'loading');
             try {
-                const response = await fetch('/api/process', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre_archivo: fileName }) });
+                // Feature PRO: Edición en línea antes de aprobar (Data Mutation)
+                const fileSafeId = fileName.replace(/[^a-zA-Z0-9]/g, '');
+                let payload = { nombre_archivo: fileName };
+                
+                // Recopilar posibles ediciones humanas en la tabla para sobreescribir la IA
+                const tdEmpresa = document.getElementById(`empresa-${fileSafeId}`);
+                const tdCat = document.getElementById(`cat-${fileSafeId}`);
+                const tdTotal = document.getElementById(`total-${fileSafeId}`);
+                
+                if (tdEmpresa) payload.empresa = tdEmpresa.innerText.trim().replace(/🎯 \d+%/, '').trim();
+                if (tdCat) payload.categoria = tdCat.innerText.trim();
+                if (tdTotal) payload.total = parseFloat(tdTotal.innerText.replace('€','').replace(',','.').trim()) || 0;
+
+                const response = await fetch('/api/process', { 
+                    method: 'PUT', 
+                    headers: { 'Content-Type': 'application/json' }, 
+                    body: JSON.stringify(payload) 
+                });
+                
                 const data = await response.json();
-                if (response.ok && data.success) { showStatus('✅ Documento validado oficialmente', 'success'); await loadHistory(); }
+                if (response.ok && data.success) { 
+                    showStatus('✅ Documento validado y sincronizado en la Base de Datos oficial', 'success'); 
+                    await loadHistory(); 
+                }
                 else showStatus(`Error: ${data.error}`, 'error');
             } catch (err) { showStatus(`Error red: ${err.message}`, 'error'); }
+        }
+
+        // --- Accesibilidad: Voice Assistant (A11y Feature) ---
+        function readDashboardAudio() {
+            if (!('speechSynthesis' in window)) return alert('Tu navegador no soporta síntesis de voz interactiva.');
+            
+            const total = document.getElementById('kpiTotal').innerText;
+            const count = document.getElementById('kpiCount').innerText;
+            const limit = budgetInput.value;
+            
+            let textToRead = `Hola. Bienvenido al panel algorítmico contable. Has procesado ${count} facturas hasta el momento. Tu gasto total acumulado es de ${total}. `;
+            if (parseFloat(total) > parseFloat(limit)) {
+                textToRead += `¡Atención y alerta! Has excedido tu presupuesto mensual establecido de ${limit} euros.`;
+            } else {
+                textToRead += `Cumples tus métricas. Estás por debajo del presupuesto máximo de ${limit} euros. Buen trabajo.`;
+            }
+            
+            const utterance = new SpeechSynthesisUtterance(textToRead);
+            utterance.lang = 'es-ES';
+            utterance.rate = 1.05;
+            window.speechSynthesis.speak(utterance);
+            showStatus('🔊 Reproduciendo síntesis de resumen contable...', 'success');
         }
 
         function showStatus(msg, type) {
